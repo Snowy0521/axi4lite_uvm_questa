@@ -1,0 +1,62 @@
+# Verilator
+obj_dir/
+*.vcd
+*.fst
+*.log
+
+# Simulation outputs
+simv
+simv.daidir/
+csrc/
+*.key
+
+# Editor / OS
+.vscode/
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.*.swp
+
+# Vim
+*.swp
+*.swo
+
+# Verilator generated files
+sim/obj_dir/
+sim/obj_dir_*/
+sim/*.dat
+
+# QuestaSim / Questa Formal (qverify) generated files
+sim/questa_work/
+sim/work/
+sim/*_opt
+sim/transcript
+sim/*.wlf
+sim/modelsim.ini
+# qverify (formal-verify / formal_questa.do) generated files -- confirmed
+# against a real run, not guessed:
+sim/.qverify/
+sim/propcheck.db/
+sim/*.rpt
+sim/formal_report.txt
+sim/qverify_cmds.tcl
+
+# Coverage (make formal-coverage -> vsim `coverage save` + vcover merge)
+sim/formal_cov_ucdb/
+*.ucdb
+
+# Questa Visualizer -- the GUI debug environment behind both vsim's wave
+*.qwdb
+qwave.db
+.visualizer/
+qverify_ui_cmds.tcl
+sysinfo.log
+vsim.dbg
+vish_stacktrace.vstf
+# empty scratch files Questa drops on startup, named etch<pid>
+etch[0-9]*
+
+# doc
+doc/*.md
