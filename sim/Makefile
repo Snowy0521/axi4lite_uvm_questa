@@ -25,9 +25,15 @@
 #   make formal-sweep N=50
 #
 # `formal-verify` drives Questa's real formal-proof engine (`qverify`) over 
-# the same formal/ SVA files via formal/formal_questa.do, exhaustive property proof, 
+# the same formal/ SVA files via sim/formal_questa.do, exhaustive property proof, 
 # not simulation.
-#   make formal-verify
+#   make formal-verify                        # 32-bit (DATA_WIDTH default)
+#   make formal-verify DATA_WIDTH=64          # 64-bit
+#   make formal-verify-all                    # both
+#
+# DATA_WIDTH (32 or 64, default 32) applies to every target -- UVM,
+# simple and formal alike:
+#   make uvm TEST=axi4lite_random_test DATA_WIDTH=64
 # ============================================================================
 
 TEST      ?= axi4lite_smoke_test
@@ -65,6 +71,14 @@ VSIM    ?= vsim
 QVERIFY ?= qverify
 
 QUESTA_WORK   := questa_work
+
+# AXI data width, 32 or 64, for every flow: compiled in as
+# +define+AXI4LITE_DATA_WIDTH, read by tb/axi4lite_pkg.sv (UVM),
+# tb/tb_simple.sv and formal/formal_tb.sv, each of which passes it to the
+# DUT. uvm/simple/formal share questa_work, and every *-build target
+# recompiles, so switching width needs no clean.
+DATA_WIDTH ?= 32
+WIDTH_DEFINE := +define+AXI4LITE_DATA_WIDTH=$(DATA_WIDTH)
 UVM_VERBOSITY ?= UVM_LOW
 
 # ============================================================================
@@ -81,7 +95,7 @@ lib:
 SIMPLE_FILES := $(RTL_FILES) $(TB_DIR)/tb_simple.sv
 
 simple-build: lib
-	$(VLOG) -sv -timescale 1ns/1ps \
+	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
 	     +incdir+$(TB_DIR) +incdir+$(RTL_DIR) \
 	     $(SIMPLE_FILES)
 	$(VOPT) +acc tb_simple -o tb_simple_opt
@@ -94,7 +108,7 @@ simple: simple-build
 # UVM testbench (tb/) via QuestaSim
 # ============================================================================
 uvm-build: lib
-	$(VLOG) -sv -timescale 1ns/1ps \
+	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
 	     +incdir+$(UVM_HOME) +define+UVM_NO_DPI \
 	     +incdir+$(TB_DIR) +incdir+$(RTL_DIR) \
 	     $(UVM_HOME)/uvm_pkg.sv $(RTL_FILES) $(TB_FILES)
@@ -134,7 +148,7 @@ uvm-sweep: uvm-build
 # simulation, not exhaustive proof -- see formal_tb.sv's header comment)
 # ============================================================================
 formal-build: lib
-	$(VLOG) -sv -timescale 1ns/1ps \
+	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
 	     +incdir+$(RTL_DIR) \
 	     $(RTL_FILES) $(FORMAL_FILES)
 	$(VOPT) +acc formal_tb -o formal_tb_opt
@@ -168,7 +182,7 @@ VCOVER ?= vcover
 FORMAL_COV_DIR := formal_cov_ucdb
 
 formal-build-cov: lib
-	$(VLOG) -sv -timescale 1ns/1ps \
+	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
 	     +incdir+$(RTL_DIR) \
 	     $(RTL_FILES) $(FORMAL_FILES)
 	$(VOPT) +acc formal_tb -o formal_tb_cov_opt
@@ -197,21 +211,33 @@ formal-coverage: formal-build-cov
 
 # ============================================================================
 # Real Questa Formal Verification (exhaustive property proof, flow #1) via
-# `qverify`, driven by formal/formal_questa.do.
+# `qverify`, driven by sim/formal_questa.do.
 # ============================================================================
+# Report: formal_report.txt (32-bit) or formal_report_64.txt.
 formal-verify:
-	$(QVERIFY) -c -do $(FORMAL_DIR)/formal_questa.do
+	DATA_WIDTH=$(DATA_WIDTH) $(QVERIFY) -c -do formal_questa.do
+
+# Prove both supported data widths back to back.
+formal-verify-all:
+	$(MAKE) formal-verify DATA_WIDTH=32
+	$(MAKE) formal-verify DATA_WIDTH=64
+
+# Same proof with formal_tb's assumptions compiled out -- any assert that
+# no longer proves here depends on the assumptions. Writes
+# formal_report[_64]_noassume.txt; the normal report is untouched.
+formal-verify-noassume:
+	DATA_WIDTH=$(DATA_WIDTH) NO_ASSUME=1 $(QVERIFY) -c -do formal_questa.do
 
 .PHONY: lib simple-build simple uvm-build uvm uvm-sweep \
         formal-build formal formal-sweep formal-build-cov formal-coverage \
-        formal-verify clean
+        formal-verify formal-verify-all formal-verify-noassume clean
 
 # Everything below is tool-generated and regenerable -- nothing here is a
 # source file, so the globs are safe: sim/ only ever holds Makefile,
-# wave.do and wave_uvm.do under version control.
+# formal_questa.do, wave.do and wave_uvm.do under version control.
 clean:
 # vlib/vmap/vopt output
-	rm -rf $(QUESTA_WORK) work tb_top_opt tb_simple_opt formal_tb_opt formal_tb_cov_opt
+	rm -rf $(QUESTA_WORK) formal_work work tb_top_opt tb_simple_opt formal_tb_opt formal_tb_cov_opt
 	rm -rf modelsim.ini
 # vsim: console log, waveform databases, UVM transaction-recording log
 	rm -rf transcript *.wlf *.vcd *.fst tr_db.log vsim.dbg vish_stacktrace.vstf
@@ -220,7 +246,7 @@ clean:
 # qverify (formal-verify): work dirs, reports, replayed command log
 	rm -rf .qverify propcheck.db
 	rm -rf formal_design.rpt formal_property.rpt formal_settings.rpt \
-	       formal_verify.rpt formal_report.txt
+	       formal_verify.rpt formal_report*.txt
 	rm -rf formal_compile.log formal_verify.log qverify.log qverify_cmds.tcl
 # qverify/visualizer GUI leftovers: saved debug sessions (*.ses), the
 # Visualizer wave database, its per-user config dir and logs, and the

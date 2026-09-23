@@ -1,13 +1,6 @@
 # AXI4-Lite UVM + Formal Verification Environment (QuestaSim / Questa Formal)
 
 ---
-
-> **QuestaSim flow.** The `rtl/`/`tb/`/`formal/` sources are built and run with
-> Siemens EDA's QuestaSim (`vlib`/`vlog`/`vopt`/`vsim`) and Questa Formal
-> Verification (`qverify`). The same environment also has a Verilator-based
-> flow, kept in a separate tree; only `sim/Makefile`,
-> `formal/formal_questa.do`, and this README differ between the two.
-
 ## Introduction
 
 A verification environment for a simplified AXI4-Lite slave, combining a constrained-random UVM testbench with a SystemVerilog Assertions (SVA) formal environment. AXI4-Lite is AMBA's lightweight memory-mapped register interface defined in the *AMBA AXI and ACE Protocol Specification* (ARM IHI 0022E), available from ARM. The DUT's concrete behavior is documented in [`spec/axi4lite_slave_spec.md`](spec/axi4lite_slave_spec.md).
@@ -20,7 +13,7 @@ A verification environment for a simplified AXI4-Lite slave, combining a constra
 ```
 axi4lite_uvm/
 ├── rtl/
-│   └── axi4lite_slave.sv           -- DUT: simple AXI4-Lite slave, NUM_REGS x 32-bit reg file
+│   └── axi4lite_slave.sv           -- DUT: simple AXI4-Lite slave, NUM_REGS x 32/64-bit reg file
 ├── tb/
 │   ├── axi4lite_if.sv              -- interface with driver/monitor clocking blocks + modports
 │   ├── axi4lite_txn.sv             -- transaction (uvm_sequence_item)
@@ -37,16 +30,18 @@ axi4lite_uvm/
 │   ├── tb_top.sv                   -- clock/reset gen, DUT+interface instantiation, run_test()
 │   └── tb_simple.sv                -- plain (non-UVM) direct-drive sanity check
 ├── formal/
-│   ├── axi4lite_assumptions.sv     -- `assume property`: constrains the environment to legal masters
-│   ├── axi4lite_assertions.sv      -- `assert property`: the DUT's own obligations (incl. whitebox WSTRB checks)
-│   ├── axi4lite_covers.sv          -- `cover property`: reachability for spec rules with no assert/assume
+│   ├── axi4lite_assumptions.sv     -- `assume property`: constrains the environment to legal masters (no proof depends on them)
+│   ├── axi4lite_assertions.sv      -- `assert property`: the DUT's own obligations (incl. whitebox WSTRB + read-data checks)
+│   ├── axi4lite_covers.sv          -- `cover property`: handshake/response/strobe, multi-transaction and mid-transaction-reset reachability
 │   ├── axi4lite_formal_driver.sv   -- legal-master constrained-random driver for simulation-based checking
-│   ├── formal_tb.sv                -- top-level formal environment, wires the above + the DUT together
-│   └── formal_questa.do            -- qverify batch script for the real formal-proof flow (see below)
+│   └── formal_tb.sv                -- top-level formal environment, wires the above + the DUT together
 ├── spec/
 │   └── axi4lite_slave_spec.md      -- this DUT's concrete behavior, traced back to ARM IHI 0022E rules
 ├── sim/
-│   └── Makefile                    -- QuestaSim + Questa Formal run targets for both tb/ (UVM) and formal/
+│   ├── Makefile                    -- QuestaSim + Questa Formal run targets for both tb/ (UVM) and formal/
+│   ├── formal_questa.do            -- qverify batch script for the real formal-proof flow (see below)
+│   ├── wave.do                     -- interactive-only GUI script: curated waves for tb_simple, then run
+│   └── wave_uvm.do                 -- interactive-only GUI script: curated waves for the UVM env (tb_top / intf / dut), then run
 └── README.md
 ```
 
@@ -80,26 +75,57 @@ tool on `PATH`:
 - All simulation targets: `vlib`/`vlog`/`vopt`/`vsim` (source Questa's setup
   script, e.g. `source <questasim_install>/settings.sh`, or add its `bin/`
   to `PATH`) and a valid license (`LM_LICENSE_FILE`).
-- `formal-verify`: `qverify`, plus the same license setup. Its driving
-  script, [`formal/formal_questa.do`](formal/formal_questa.do), is a
-  template -- see its header comment before trusting the results; it
-  hasn't been run against a real Questa install, since this repo was
-  developed without one available.
+- `formal-verify`: `qverify` (Questa Formal 2024.3), plus the same license
+  setup. Driven by [`sim/formal_questa.do`](sim/formal_questa.do), compiled
+  into its own `sim/formal_work` library; the summary lands in
+  `sim/formal_report.txt` (`formal_report_64.txt` for the 64-bit run).
+
+`DATA_WIDTH` (32 by default, or 64) works on every target. It is compiled
+in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
+`tb/tb_simple.sv` and `formal/formal_tb.sv` each pass it to the DUT, so
+switching width never means editing a source file.
 
 ```bash
 cd sim
+make simple                                    # plain (non-UVM) direct-drive sanity check via tb_simple.sv
+
 make uvm TEST=axi4lite_smoke_test              # directed write/read-back smoke test
 make uvm TEST=axi4lite_random_test SEED=42     # constrained-random regression, reproducible via seed
-make uvm-sweep TEST=axi4lite_random_test N=50  # build once, run seeds 1..N, report which (if any) failed
+make uvm-sweep TEST=axi4lite_random_test N=20  # build once, run seeds 1..N, report which (if any) failed
+make uvm TEST=axi4lite_random_test DATA_WIDTH=64  # any target: DATA_WIDTH=32 (default) or 64
 
 make formal SEED=7                             # assume/assert/cover env, bounded randomly-driven sim
 make formal-sweep N=50                         # same idea: build once, sweep seeds, report failures
 
-make formal-verify                             # real Questa Formal proof (flow #1), not simulation
+make formal-verify                             # real Questa Formal proof (flow #1), not simulation, 32-bit
+make formal-verify DATA_WIDTH=64               # same, 64-bit configuration
+make formal-verify-all                         # both widths back to back
+make formal-verify-noassume                    # proof without assumptions: shows which proofs depend on them
 
-make simple                                    # plain (non-UVM) direct-drive sanity check via tb_simple.sv
 make clean
 ```
+
+## Formal results
+
+Questa Formal 2024.3, `make formal-verify-all`:
+
+| Configuration | Asserts            | Covers            |
+|---------------|--------------------|-------------------|
+| 32-bit        | 34 / 34 proven     | 39 / 39 covered   |
+| 64-bit        | 42 / 42 proven     | 39 / 39 covered   |
+
+- Full proofs (not bounded), none vacuous.
+- `rst_n` is left free after init (`formal verify -auto_constraint_off`),
+  so reset asserted mid-transaction is part of every proof, and covers
+  show the slave recovering from it.
+- Read data is checked end to end: `a_read_data_matches_regfile` proves
+  RDATA equals the addressed register, and `cp_write_then_read_back`
+  shows a written value actually coming back.
+- `make formal-verify-noassume` proves every assert with the assumptions
+  compiled out: the DUT is correct against any master, legal or not.
+- Open: most covers are reported "Covered with Warning". The flag moves
+  between runs with the witness trace the engine picks; its exact meaning
+  in PropCheck isn't in the text reports (the qverify GUI shows it).
 
 
 
@@ -110,15 +136,6 @@ make clean
 3. **Error injection via factory override**
 4. **Implemente AWPROT/ARPROT**
 5. **Cover-point closure reporting for `formal/`**
-6. ~~**Real formal proof for `formal/`**~~ -- `make formal-verify` (this
-   branch), pending validation against a real Questa install
-7. **Wire both sweeps into CI**
-8. ~~**`formal-coverage` equivalent under Questa**~~ -- `make formal-coverage`
-   (this branch), via `vcover merge`/`report`; validated against a real
-   run, all 27 `cp_*` points covered across a 20-seed sweep
-9. ~~**Confirm `tb/` compiles unmodified against Questa's bundled UVM 1.2**~~
-   -- it didn't, unmodified: two real bugs found and fixed (a file
-   compile-order issue in `sim/Makefile`, and an argument-name mismatch in
-   `axi4lite_coverage_collector.sv`'s `write()` override -- see git log).
-   `tb/` now runs clean on both UVM 1.2 (this branch) and dev's IEEE
-   1800.2-2020 kit
+6. **Wire both sweeps and `formal-verify-all` into CI, for both `DATA_WIDTH`s**
+7. **Explain/resolve "Covered with Warning" in the qverify GUI**
+

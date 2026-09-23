@@ -15,13 +15,14 @@
 //      generator, the `initial` reset block, the simulation time-limit
 //      block, AND the axi4lite_formal_driver instantiation below -- the
 //      tool supplies clock/reset itself via its own `clock`/`reset`
-//      commands, and every AXI signal left undriven becomes a free
-//      variable constrained only by axi4lite_assumptions.sv's `assume
+//      commands, and every master-driven AXI signal becomes a top-level
+//      input port -- a free variable constrained only by
+//      axi4lite_assumptions.sv's `assume
 //      property` checks. (The randomized driver must also be excluded
 //      here, not just clk/reset -- its $urandom-based next-state logic
 //      isn't proof-friendly and would artificially restrict the state
 //      space a real formal engine should explore exhaustively.) See
-//      formal/formal_questa.do for the qverify script that sets this
+//      sim/formal_questa.do for the qverify script that sets this
 //      define.
 //   2. Bounded/simulation-based assertion checking (QuestaSim, or any
 //      simulator run as a smoke check before a real formal tool is
@@ -33,39 +34,61 @@
 
 `timescale 1ns/1ps
 
-module formal_tb;
+// Under +define+QUESTA_FORMAL, clk/rst_n and every master-driven AXI
+// signal are top-level input ports -- the formal tool's primary inputs --
+// rather than undriven internal nets (qverify flags those as
+// DECLARATION_UNDRIVEN). In flow #2 they stay internal, driven by the
+// clock/reset blocks and axi4lite_formal_driver below.
+module formal_tb
+`ifdef QUESTA_FORMAL
+  (clk, rst_n, awaddr, awvalid, wdata, wstrb, wvalid, bready, araddr, arvalid, rready)
+`endif
+;
+
+`ifdef QUESTA_FORMAL
+  `define FTB_FREE input logic
+`else
+  `define FTB_FREE logic
+`endif
 
   localparam int ADDR_WIDTH = 8;
-  localparam int DATA_WIDTH = 32;   // change to 64 to formally verify the 64-bit configuration
+  // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (sim/Makefile's
+  // DATA_WIDTH variable); 32 if not given.
+`ifndef AXI4LITE_DATA_WIDTH
+  `define AXI4LITE_DATA_WIDTH 32
+`endif
+  localparam int DATA_WIDTH = `AXI4LITE_DATA_WIDTH;
   localparam int NUM_REGS   = 16;
 
   // ------------------------------------------------------------------
-  // DUT signals
+  // DUT signals (`FTB_FREE: master side / clock / reset, see above)
   // ------------------------------------------------------------------
-  logic                    clk;
-  logic                    rst_n;
+  `FTB_FREE                    clk;
+  `FTB_FREE                    rst_n;
 
-  logic [ADDR_WIDTH-1:0]   awaddr;
-  logic                    awvalid;
-  logic                    awready;
+  `FTB_FREE [ADDR_WIDTH-1:0]   awaddr;
+  `FTB_FREE                    awvalid;
+  logic                        awready;
 
-  logic [DATA_WIDTH-1:0]   wdata;
-  logic [DATA_WIDTH/8-1:0] wstrb;
-  logic                    wvalid;
-  logic                    wready;
+  `FTB_FREE [DATA_WIDTH-1:0]   wdata;
+  `FTB_FREE [DATA_WIDTH/8-1:0] wstrb;
+  `FTB_FREE                    wvalid;
+  logic                        wready;
 
-  logic [1:0]              bresp;
-  logic                    bvalid;
-  logic                    bready;
+  logic [1:0]                  bresp;
+  logic                        bvalid;
+  `FTB_FREE                    bready;
 
-  logic [ADDR_WIDTH-1:0]   araddr;
-  logic                    arvalid;
-  logic                    arready;
+  `FTB_FREE [ADDR_WIDTH-1:0]   araddr;
+  `FTB_FREE                    arvalid;
+  logic                        arready;
 
-  logic [DATA_WIDTH-1:0]   rdata;
-  logic [1:0]              rresp;
-  logic                    rvalid;
-  logic                    rready;
+  logic [DATA_WIDTH-1:0]       rdata;
+  logic [1:0]                  rresp;
+  logic                        rvalid;
+  `FTB_FREE                    rready;
+
+`undef FTB_FREE
 
   // ------------------------------------------------------------------
   // Clock / reset -- flow #2 only (see header comment). Compiled out
@@ -106,8 +129,8 @@ module formal_tb;
   // ------------------------------------------------------------------
   // Legal-master stimulus (flow #2 only) -- see
   // axi4lite_formal_driver.sv's header for why this is needed at all.
-  // Compiled out under +define+QUESTA_FORMAL: a true formal tool leaves
-  // every AXI signal undriven (hence free) and constrains it purely via
+  // Compiled out under +define+QUESTA_FORMAL: there every master-driven
+  // AXI signal is a top-level input (hence free), constrained purely via
   // the `assume property` checks in axi4lite_assumptions.sv instead.
   // ------------------------------------------------------------------
 `ifndef QUESTA_FORMAL
@@ -119,8 +142,11 @@ module formal_tb;
 `endif
 
   // ------------------------------------------------------------------
-  // Environment constraints 
+  // Environment constraints. FORMAL_NO_ASSUMPTIONS compiles them out
+  // (sim/Makefile's formal-verify-noassume) to check which proofs
+  // actually depend on them.
   // ------------------------------------------------------------------
+`ifndef FORMAL_NO_ASSUMPTIONS
   axi4lite_assumptions #(
     .ADDR_WIDTH (ADDR_WIDTH),
     .DATA_WIDTH (DATA_WIDTH)
@@ -140,6 +166,7 @@ module formal_tb;
     .arready (arready),
     .rready  (rready)
   );
+`endif
 
   // ------------------------------------------------------------------
   // DUT obligations (whitebox: regfile wired directly to dut.regfile)
@@ -177,20 +204,25 @@ module formal_tb;
   // scenarios rather than vacuously passing.
   // ------------------------------------------------------------------
   axi4lite_covers #(
+    .ADDR_WIDTH (ADDR_WIDTH),
     .DATA_WIDTH (DATA_WIDTH)
   ) u_covers (
     .clk     (clk),
     .rst_n   (rst_n),
+    .awaddr  (awaddr),
     .awvalid (awvalid),
     .awready (awready),
+    .wdata   (wdata),
     .wstrb   (wstrb),
     .wvalid  (wvalid),
     .wready  (wready),
     .bresp   (bresp),
     .bvalid  (bvalid),
     .bready  (bready),
+    .araddr  (araddr),
     .arvalid (arvalid),
     .arready (arready),
+    .rdata   (rdata),
     .rresp   (rresp),
     .rvalid  (rvalid),
     .rready  (rready)

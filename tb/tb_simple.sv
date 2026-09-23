@@ -17,9 +17,13 @@
 
 module tb_simple;
 
+  // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (sim/Makefile's
+  // DATA_WIDTH variable); 32 if not given.
+`ifndef AXI4LITE_DATA_WIDTH
+  `define AXI4LITE_DATA_WIDTH 32
+`endif
   localparam int ADDR_WIDTH = 8;
-  localparam int DATA_WIDTH = 32;
-  //localparam int DATA_WIDTH = 64;
+  localparam int DATA_WIDTH = `AXI4LITE_DATA_WIDTH;
   localparam int NUM_REGS   = 16; 
   localparam int ADDR_LSB = $clog2(DATA_WIDTH / 8);
   localparam int REG_STRIDE = DATA_WIDTH / 8; 

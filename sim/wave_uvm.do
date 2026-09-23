@@ -7,12 +7,12 @@
 #
 # Usage:
 #   cd sim && make uvm-build
-#   vsim -do wave_uvm.do tb_top_opt
-#   vsim -do wave_uvm.do tb_top_opt +UVM_TESTNAME=axi4lite_random_test \
-#        +ntb_random_seed=42 +UVM_VERBOSITY=UVM_LOW
+#   vsim -do wave_uvm.do tb_top_opt +UVM_TESTNAME=axi4lite_random_test +ntb_random_seed=42 +UVM_VERBOSITY=UVM_LOW
 #
-# Run this by hand in a shell with a working $DISPLAY, not via a make
-# target.
+# Run this by hand from sim/ (so ./questa_work resolves), in a shell with a
+# working $DISPLAY or in the Questa Transcript -- not via a make target.
+# Keep the command on one line: a trailing `\` isn't a line continuation
+# in the Transcript and ends up inside the next argument.
 # ============================================================================
 
 add wave -divider "clk/rst"

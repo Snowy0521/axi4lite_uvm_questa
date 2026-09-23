@@ -30,6 +30,7 @@ sim/*.dat
 
 # QuestaSim / Questa Formal (qverify) generated files
 sim/questa_work/
+sim/formal_work/
 sim/work/
 sim/*_opt
 sim/transcript
@@ -40,7 +41,7 @@ sim/modelsim.ini
 sim/.qverify/
 sim/propcheck.db/
 sim/*.rpt
-sim/formal_report.txt
+sim/formal_report*.txt
 sim/qverify_cmds.tcl
 
 # Coverage (make formal-coverage -> vsim `coverage save` + vcover merge)

@@ -146,9 +146,12 @@ module axi4lite_assertions #(
     else $error("BRESP is neither OKAY nor SLVERR while BVALID is asserted");
 
   // Response-code correctness against the DUT's own address range.
+  // Reference registers are reset (like the DUT's own latches) so none
+  // is X after qverify's init sequence.
   logic [ADDR_WIDTH-1:0] awaddr_latched_ref;
-  always_ff @(posedge clk) begin
-    if (awvalid && awready) awaddr_latched_ref <= awaddr;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n)                  awaddr_latched_ref <= '0;
+    else if (awvalid && awready) awaddr_latched_ref <= awaddr;
   end
 
   a_write_okay_in_range: assert property (
@@ -164,12 +167,18 @@ module axi4lite_assertions #(
   logic [DATA_WIDTH-1:0]   wdata_latched_ref;
   logic [DATA_WIDTH/8-1:0] wstrb_latched_ref;
   logic [DATA_WIDTH-1:0]   regfile_before_write [NUM_REGS];
-  always_ff @(posedge clk) begin
-    if (wvalid && wready) begin
-      wdata_latched_ref <= wdata;
-      wstrb_latched_ref <= wstrb;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      wdata_latched_ref    <= '0;
+      wstrb_latched_ref    <= '0;
+      regfile_before_write <= '{default: '0};
+    end else begin
+      if (wvalid && wready) begin
+        wdata_latched_ref <= wdata;
+        wstrb_latched_ref <= wstrb;
+      end
+      if (awvalid && awready) regfile_before_write <= regfile;
     end
-    if (awvalid && awready) regfile_before_write <= regfile;
   end
 
   genvar gb;
@@ -213,6 +222,15 @@ module axi4lite_assertions #(
   a_read_okay_in_range: assert property (
     (arvalid && arready && in_range(araddr)) |=> rresp == OKAY
   ) else $error("In-range read did not return OKAY");
+
+  // Read-data correctness, whitebox against `regfile`. RDATA is the
+  // register's value at the AR handshake edge -- a write firing on that
+  // same edge is not yet visible -- hence $past, which also samples
+  // araddr at the handshake rather than one cycle later.
+  a_read_data_matches_regfile: assert property (
+    (arvalid && arready && in_range(araddr))
+    |=> rdata == $past(regfile[araddr[ADDR_WIDTH-1:ADDR_LSB]])
+  ) else $error("In-range read returned data different from the addressed register");
 
   a_read_slverr_out_of_range: assert property (
     (arvalid && arready && !in_range(araddr)) |=> (rresp == SLVERR && rdata == '0)

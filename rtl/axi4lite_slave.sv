@@ -21,8 +21,7 @@ typedef enum logic [1:0] {
 
 module axi4lite_slave #(
   parameter int ADDR_WIDTH = 8,     
-  parameter int DATA_WIDTH = 32,
-  //parameter int DATA_WIDTH = 64,
+  parameter int DATA_WIDTH = 32,    // 32 or 64; every testbench overrides it
   parameter int NUM_REGS   = 16     
 )(
   input  logic                    clk,

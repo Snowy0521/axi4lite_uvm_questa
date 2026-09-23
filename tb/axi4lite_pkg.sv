@@ -7,9 +7,13 @@
 
 package axi4lite_pkg;
 
+  // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (sim/Makefile's
+  // DATA_WIDTH variable); 32 if not given.
+`ifndef AXI4LITE_DATA_WIDTH
+  `define AXI4LITE_DATA_WIDTH 32
+`endif
   parameter int unsigned ADDR_WIDTH     = 8;
-  parameter int unsigned DATA_WIDTH     = 32;
-  //parameter int unsigned DATA_WIDTH     = 64;
+  parameter int unsigned DATA_WIDTH     = `AXI4LITE_DATA_WIDTH;
   parameter int unsigned NUM_REGS       = 16;
   parameter int unsigned STRB_WIDTH     = DATA_WIDTH/8;
   parameter int unsigned ADDR_LSB       = $clog2(STRB_WIDTH);
