@@ -36,6 +36,7 @@ sim/*_opt
 sim/transcript
 sim/*.wlf
 sim/modelsim.ini
+sim/*.ses
 # qverify (formal-verify / formal_questa.do) generated files -- confirmed
 # against a real run, not guessed:
 sim/.qverify/

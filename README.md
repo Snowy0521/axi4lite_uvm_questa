@@ -13,6 +13,7 @@ A verification environment for a simplified AXI4-Lite slave, combining a constra
 ```
 axi4lite_uvm/
 ├── rtl/
+│   ├── axi4lite_types_pkg.sv       -- shared AXI protocol types (axi_resp_e), imported everywhere
 │   └── axi4lite_slave.sv           -- DUT: simple AXI4-Lite slave, NUM_REGS x 32/64-bit reg file
 ├── tb/
 │   ├── axi4lite_if.sv              -- interface with driver/monitor clocking blocks + modports

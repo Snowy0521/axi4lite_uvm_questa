@@ -90,9 +90,9 @@ class axi4lite_scoreboard extends uvm_component;
     end
   endfunction
 
-  // check that the response is OKAY (2'b00), report an error if not
+  // check that the response is OKAY, report an error if not
   protected function bit check_resp_ok(axi4lite_txn tr, string ctx);
-    if (tr.resp != 2'b00) begin
+    if (tr.resp != AXI_RESP_OKAY) begin
       num_errors++;
       `uvm_error("SB", $sformatf(
         "in-range %s to addr=0x%0h expected OKAY but got resp=%b", ctx, tr.addr, tr.resp));
@@ -101,9 +101,9 @@ class axi4lite_scoreboard extends uvm_component;
     return 1;
   endfunction
 
-  // check that the response is SLVERR (2'b10), report an error if not
+  // check that the response is SLVERR, report an error if not
   protected function void check_resp_slverr(axi4lite_txn tr, string ctx);
-    if (tr.resp != 2'b10) begin
+    if (tr.resp != AXI_RESP_SLVERR) begin
       num_errors++;
       `uvm_error("SB", $sformatf(
         "out-of-range %s to addr=0x%0h expected SLVERR but got resp=%b", ctx, tr.addr, tr.resp));

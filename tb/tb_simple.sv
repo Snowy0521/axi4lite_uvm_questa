@@ -17,6 +17,8 @@
 
 module tb_simple;
 
+  import axi4lite_types_pkg::*;
+
   // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (sim/Makefile's
   // DATA_WIDTH variable); 32 if not given.
 `ifndef AXI4LITE_DATA_WIDTH
@@ -192,19 +194,19 @@ module tb_simple;
     // 2) read back and check
     do_read(8'h00, rd_data, rd_resp);
     check("reg0 read-back", rd_data, reg0_data);
-    check_resp("reg0 read", rd_resp, 2'b00);
+    check_resp("reg0 read", rd_resp, AXI_RESP_OKAY);
 
     do_read(8'(REG_STRIDE), rd_data, rd_resp);
     check("reg1 read-back", rd_data, reg1_data);
-    check_resp("reg1 read", rd_resp, 2'b00);
+    check_resp("reg1 read", rd_resp, AXI_RESP_OKAY);
 
     // 3) out-of-range write -> expect SLVERR
     do_write(8'hFC, oor_data);   // word_idx = 0xFC>>2 = 63, way beyond NUM_REGS=16
-    check_resp("out-of-range write", bresp, 2'b10);
+    check_resp("out-of-range write", bresp, AXI_RESP_SLVERR);
 
     // 4) out-of-range read -> expect SLVERR, rdata == 0
     do_read(8'hFC, rd_data, rd_resp);
-    check_resp("out-of-range read", rd_resp, 2'b10);
+    check_resp("out-of-range read", rd_resp, AXI_RESP_SLVERR);
     check("out-of-range read data", rd_data, '0);
 
     // ------------------------------------------------------------------

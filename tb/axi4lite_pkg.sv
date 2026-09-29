@@ -23,6 +23,7 @@ package axi4lite_pkg;
   parameter int unsigned NUM_SMOKE_TXNS  = 4;    // number of transactions in the smoke test
 
 
+  import axi4lite_types_pkg::*;
   import uvm_pkg::*;
   `include "uvm_macros.svh"
 

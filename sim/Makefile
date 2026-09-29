@@ -51,7 +51,10 @@ export MODELSIM := $(CURDIR)/modelsim.ini
 
 UVM_HOME ?= /eda/Siemens/2024-25/RHELx86/QUESTA-CORE-PRIME_2024.3/questasim/verilog_src/uvm-1.2/src
 
-RTL_FILES := $(RTL_DIR)/axi4lite_slave.sv
+# axi4lite_types_pkg.sv must come first: the RTL, UVM package, tb_simple
+# and formal files all import it
+RTL_FILES := $(RTL_DIR)/axi4lite_types_pkg.sv \
+             $(RTL_DIR)/axi4lite_slave.sv
 
 # axi4lite_pkg.sv must come before axi4lite_if.sv: the interface's default
 # parameter values reference axi4lite_pkg::ADDR_WIDTH/DATA_WIDTH

@@ -42,8 +42,8 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
         }
 
         cp_resp: coverpoint resp {
-            bins ok = {2'b00};
-            bins slverr = {2'b10};
+            bins ok = {AXI_RESP_OKAY};
+            bins slverr = {AXI_RESP_SLVERR};
         }
 
         // cross coverage between coverpoints

@@ -39,10 +39,7 @@ module axi4lite_assertions #(
   input logic [DATA_WIDTH-1:0]   regfile [NUM_REGS]
 );
 
-  localparam logic [1:0] OKAY   = 2'b00;
-  localparam logic [1:0] EXOKAY = 2'b01;
-  localparam logic [1:0] SLVERR = 2'b10;
-  localparam logic [1:0] DECERR = 2'b11;
+  import axi4lite_types_pkg::*;
 
   
   localparam int ADDR_LSB = $clog2(DATA_WIDTH / 8);
@@ -142,7 +139,7 @@ module axi4lite_assertions #(
 
   // 3. Whenever the slave asserts BVALID, BRESP must be a legal AXI4-Lite
   //    write response code (OKAY or SLVERR). 
-  a_bresp_legal_value: assert property (bvalid |-> (bresp == OKAY || bresp == SLVERR))
+  a_bresp_legal_value: assert property (bvalid |-> (bresp == AXI_RESP_OKAY || bresp == AXI_RESP_SLVERR))
     else $error("BRESP is neither OKAY nor SLVERR while BVALID is asserted");
 
   // Response-code correctness against the DUT's own address range.
@@ -155,11 +152,11 @@ module axi4lite_assertions #(
   end
 
   a_write_okay_in_range: assert property (
-    $rose(bvalid) && in_range(awaddr_latched_ref) |-> bresp == OKAY
+    $rose(bvalid) && in_range(awaddr_latched_ref) |-> bresp == AXI_RESP_OKAY
   ) else $error("In-range write did not return OKAY");
 
   a_write_slverr_out_of_range: assert property (
-    $rose(bvalid) && !in_range(awaddr_latched_ref) |-> bresp == SLVERR
+    $rose(bvalid) && !in_range(awaddr_latched_ref) |-> bresp == AXI_RESP_SLVERR
   ) else $error("Out-of-range write did not return SLVERR");
 
   // Write-strobe byte-lane correctness, whitebox check against the
@@ -220,7 +217,7 @@ module axi4lite_assertions #(
     else $error("RVALID asserted while RDATA is unknown");
 
   a_read_okay_in_range: assert property (
-    (arvalid && arready && in_range(araddr)) |=> rresp == OKAY
+    (arvalid && arready && in_range(araddr)) |=> rresp == AXI_RESP_OKAY
   ) else $error("In-range read did not return OKAY");
 
   // Read-data correctness, whitebox against `regfile`. RDATA is the
@@ -233,11 +230,11 @@ module axi4lite_assertions #(
   ) else $error("In-range read returned data different from the addressed register");
 
   a_read_slverr_out_of_range: assert property (
-    (arvalid && arready && !in_range(araddr)) |=> (rresp == SLVERR && rdata == '0)
+    (arvalid && arready && !in_range(araddr)) |=> (rresp == AXI_RESP_SLVERR && rdata == '0)
   ) else $error("Out-of-range read did not return SLVERR with rdata==0");
 
   // Legal response-code check, read side (parallel to a_bresp_legal_value).
-  a_rresp_legal_value: assert property (rvalid |-> (rresp == OKAY || rresp == SLVERR))
+  a_rresp_legal_value: assert property (rvalid |-> (rresp == AXI_RESP_OKAY || rresp == AXI_RESP_SLVERR))
     else $error("RRESP is neither OKAY nor SLVERR while RVALID is asserted");
 
   // Outstanding-transaction restriction

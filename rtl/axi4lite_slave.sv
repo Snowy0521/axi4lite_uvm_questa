@@ -12,14 +12,9 @@
 //   - Out-of-range address on read returns SLVERR (2'b10) with 0 data
 // ===========================================================================
 
-typedef enum logic [1:0] {
-  AXI_RESP_OKAY = 2'b00,
-  AXI_RESP_EXOKAY = 2'b01,
-  AXI_RESP_SLVERR = 2'b10,
-  AXI_RESP_DECERR = 2'b11
-} axi_resp_e;
-
-module axi4lite_slave #(
+module axi4lite_slave
+  import axi4lite_types_pkg::*;
+#(
   parameter int ADDR_WIDTH = 8,     
   parameter int DATA_WIDTH = 32,    // 32 or 64; every testbench overrides it
   parameter int NUM_REGS   = 16     
@@ -91,7 +86,7 @@ module axi4lite_slave #(
 
       // part of the output signals
       bvalid         <= 1'b0;
-      bresp          <= 2'b00;
+      bresp          <= AXI_RESP_OKAY;
 
       // Register file: explicit reset removes reliance on
       // simulator-specific uninitialized-memory behavior (2-state tools
@@ -143,7 +138,7 @@ module axi4lite_slave #(
     if (!rst_n) begin
       rvalid <= 1'b0;
       rdata  <= '0;
-      rresp  <= 2'b00;
+      rresp  <= AXI_RESP_OKAY;
     end else begin
       if (arvalid && arready) begin
         automatic int unsigned word_idx = araddr[ADDR_WIDTH-1 : ADDR_LSB];

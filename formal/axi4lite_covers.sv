@@ -33,8 +33,7 @@ module axi4lite_covers #(
   input logic                    rready
 );
 
-  localparam logic [1:0] OKAY   = 2'b00;
-  localparam logic [1:0] SLVERR = 2'b10;
+  import axi4lite_types_pkg::*;
 
   localparam int ADDR_LSB = $clog2(DATA_WIDTH / 8);
 
@@ -74,8 +73,8 @@ module axi4lite_covers #(
   // *********** 4.2 Specific rules for AW / W / B ****************************** 
   // ****************************************************************************
 
-  cp_write_okay:   cover property ($rose(bvalid) && bresp == OKAY);
-  cp_write_slverr: cover property ($rose(bvalid) && bresp == SLVERR);
+  cp_write_okay:   cover property ($rose(bvalid) && bresp == AXI_RESP_OKAY);
+  cp_write_slverr: cover property ($rose(bvalid) && bresp == AXI_RESP_SLVERR);
 
   //AWVALID/WVALID may arrive in either order or simultaneously. 
   cp_aw_before_w: cover property (
@@ -107,13 +106,13 @@ module axi4lite_covers #(
   // ***** 4.3 Specific rules for AR / R ****************************************
   // ****************************************************************************
 
-  cp_read_okay:   cover property ($rose(rvalid) && rresp == OKAY);
-  cp_read_slverr: cover property ($rose(rvalid) && rresp == SLVERR);
+  cp_read_okay:   cover property ($rose(rvalid) && rresp == AXI_RESP_OKAY);
+  cp_read_slverr: cover property ($rose(rvalid) && rresp == AXI_RESP_SLVERR);
 
   // A read returns non-reset data (regfile resets to 0), i.e. a written
   // value made it back out -- keeps a_read_data_matches_regfile from
   // only ever being exercised against all-zero registers.
-  cp_read_written_data: cover property ($rose(rvalid) && rresp == OKAY && rdata != '0);
+  cp_read_written_data: cover property ($rose(rvalid) && rresp == AXI_RESP_OKAY && rdata != '0);
 
 
   // ****************************************************************************
@@ -156,7 +155,7 @@ module axi4lite_covers #(
       bvalid_d <= bvalid;
       if (awvalid && awready) awaddr_q <= awaddr;
       if (wvalid  && wready)  wdata_q  <= wdata;
-      if (bvalid && !bvalid_d && bresp == OKAY && wstrb_latched_ref == '1) begin
+      if (bvalid && !bvalid_d && bresp == AXI_RESP_OKAY && wstrb_latched_ref == '1) begin
         last_wr_addr  <= awaddr_q;
         last_wr_data  <= wdata_q;
         last_wr_valid <= 1'b1;
@@ -167,7 +166,7 @@ module axi4lite_covers #(
   cp_write_then_read_back: cover property (
     (arvalid && arready && last_wr_valid && last_wr_data != '0 &&
      araddr[ADDR_WIDTH-1:ADDR_LSB] == last_wr_addr[ADDR_WIDTH-1:ADDR_LSB])
-    ##1 (rvalid && rresp == OKAY && rdata == last_wr_data)
+    ##1 (rvalid && rresp == AXI_RESP_OKAY && rdata == last_wr_data)
   );
 
 

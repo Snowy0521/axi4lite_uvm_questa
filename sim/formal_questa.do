@@ -46,6 +46,7 @@ set REPORT "formal_report$REPORT_SUFFIX.txt"
 
 vlog -sv -timescale 1ns/1ps +define+QUESTA_FORMAL {*}$EXTRA_DEFINES \
      +incdir+$RTL_DIR \
+     $RTL_DIR/axi4lite_types_pkg.sv \
      $RTL_DIR/axi4lite_slave.sv \
      $FORMAL_DIR/axi4lite_assumptions.sv \
      $FORMAL_DIR/axi4lite_assertions.sv \
