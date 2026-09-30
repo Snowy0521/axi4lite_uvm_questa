@@ -112,8 +112,8 @@ Questa Formal 2024.3, `make formal-verify-all`:
 
 | Configuration | Asserts            | Covers            |
 |---------------|--------------------|-------------------|
-| 32-bit        | 34 / 34 proven     | 39 / 39 covered   |
-| 64-bit        | 42 / 42 proven     | 39 / 39 covered   |
+| 32-bit        | 50 / 50 proven     | 39 / 39 covered   |
+| 64-bit        | 58 / 58 proven     | 39 / 39 covered   |
 
 - Full proofs (not bounded), none vacuous.
 - `rst_n` is left free after init (`formal verify -auto_constraint_off`),
@@ -122,11 +122,32 @@ Questa Formal 2024.3, `make formal-verify-all`:
 - Read data is checked end to end: `a_read_data_matches_regfile` proves
   RDATA equals the addressed register, and `cp_write_then_read_back`
   shows a written value actually coming back.
+- Frame condition: `g_regfile_frame[i]` proves register `i` changes only
+  on an in-range write to index `i`, so an out-of-range write, or a write
+  that also clobbers another register, is caught. Checked by mutation:
+  aliasing out-of-range writes onto `regfile[word_idx[3:0]]` (while still
+  returning SLVERR) fires it.
 - `make formal-verify-noassume` proves every assert with the assumptions
   compiled out: the DUT is correct against any master, legal or not.
-- Open: most covers are reported "Covered with Warning". The flag moves
-  between runs with the witness trace the engine picks; its exact meaning
-  in PropCheck isn't in the text reports (the qverify GUI shows it).
+- Known, benign: roughly 27-31 covers are reported "Covered with
+  Warning" (the count and the set vary from run to run). Cause: at the
+  first tick after init, `$rose()`/`$stable()` have no previous sample
+  (the LRM gives it the type's default, X), and qverify models that
+  history value as a free "modeling" control point. A witness that
+  assigns one gets flagged. Confirmed in the GUI's Control Point Values
+  window: `u_covers.$rose(arvalid)` for `cp_ar_ready_preasserted`, and
+  `u_assumptions.$stable(wdata)`/`$stable(wstrb)` for
+  `cp_w_before_aw_master` (assumptions sit in every cover's cone of
+  influence). Impact:
+  - Asserts: none. A free history bit only adds behaviors, so it can
+    cause a spurious failure, never a false proof.
+  - Covers: a witness could in principle rely on a history value that
+    can't occur. The flagged covers all have ordinary legal traces.
+    Rewriting `$rose(x) && ...` as `!x ##1 (x && ...)` was shown to clear
+    the flag on the `cp_*_ready_preasserted` covers; replacing the
+    assumptions' `$stable` with reset registers should clear the rest
+    but was not run to completion. The standard SVA forms are kept for
+    readability.
 
 
 

@@ -194,6 +194,22 @@ module axi4lite_assertions #(
     end
   endgenerate
 
+  // Frame condition: a register may change only on the cycle an in-range
+  // write to its own index fires (the regfile update lands on the same
+  // edge BVALID rises). Catches what the byte-lane checks above cannot:
+  // an out-of-range write touching any register, or a write also
+  // clobbering a register other than the addressed one.
+  genvar gr;
+  generate
+    for (gr = 0; gr < NUM_REGS; gr++) begin : g_regfile_frame
+      a_regfile_changes_only_on_own_write: assert property (
+        !$stable(regfile[gr])
+        |-> $rose(bvalid) && in_range(awaddr_latched_ref)
+            && awaddr_latched_ref[ADDR_WIDTH-1:ADDR_LSB] == gr
+      ) else $error("regfile[%0d] changed without an in-range write to it", gr);
+    end
+  endgenerate
+
   // Outstanding-transaction restriction
   a_bvalid_clears_next_cycle: assert property (bvalid && bready |=> !bvalid)
     else $error("BVALID did not deassert the cycle after being accepted");

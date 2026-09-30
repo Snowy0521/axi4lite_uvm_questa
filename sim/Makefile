@@ -14,7 +14,7 @@
 # `uvm-sweep` builds TEST once and runs seeds 1..N (default 20) against it,
 # reporting which (if any) failed by parsing each run's UVM report summary
 # (UVM_ERROR/UVM_FATAL counts) -- much cheaper than N full rebuilds:
-#   make uvm-sweep TEST=axi4lite_random_test N=50
+#   make uvm-sweep TEST=axi4lite_random_test N=20
 #
 # `formal` runs the ../formal/ assume/assert/cover environment (flow #2 in
 # formal_tb.sv's header comment) under vsim -- bounded, randomly-driven
@@ -22,7 +22,7 @@
 # axi4lite_formal_driver.sv's randomization for reproducibility:
 #   make formal SEED=123
 # `formal-sweep` builds once and sweeps seeds 1..N, same idea as uvm-sweep:
-#   make formal-sweep N=50
+#   make formal-sweep N=20
 #
 # `formal-verify` drives Questa's real formal-proof engine (`qverify`) over 
 # the same formal/ SVA files via sim/formal_questa.do, exhaustive property proof, 
