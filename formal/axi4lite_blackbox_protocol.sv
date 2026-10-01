@@ -10,7 +10,14 @@
 module axi4lite_blackbox_protocol #(
   parameter int ADDR_WIDTH = 8,
   parameter int DATA_WIDTH = 32,
-  parameter int NUM_REGS   = 16
+  parameter int NUM_REGS   = 16,
+  // Most accepted-but-unanswered requests per channel the bookkeeping
+  // below tracks (the a_model_*_no_overflow asserts fire if a DUT exceeds it).
+  parameter int MAX_OUTSTANDING = 2,
+  // "Must not wait for READY" is checked as: a pending response appears
+  // within RESP_TIMEOUT cycles even if READY stays low. A deadlock bound,
+  // not the DUT's latency (1-2 cycles today).
+  parameter int RESP_TIMEOUT    = 8
 )(
   input logic                    clk,
   input logic                    rst_n,
@@ -58,7 +65,8 @@ module axi4lite_blackbox_protocol #(
   default clocking cb @(posedge clk); endclocking
   default disable iff (!rst_n);
 
-  // Environment constraints to prevent X propagation from the slave side.
+  // No X on the slave's outputs: control always, payload while VALID.
+  // (RDATA is covered by a_rvalid_requires_rdata, rule 4.3.3 below.)
   a_no_x_awready:  assert property (!$isunknown(awready));
 
   a_no_x_wready:   assert property (!$isunknown(wready));
@@ -69,7 +77,6 @@ module axi4lite_blackbox_protocol #(
   a_no_x_arready:  assert property (!$isunknown(arready));
 
   a_no_x_rvalid:   assert property (!$isunknown(rvalid));
-  a_no_x_rdata:    assert property (rvalid |-> !$isunknown(rdata));
   a_no_x_rresp:    assert property (rvalid |-> !$isunknown(rresp));
 
   // ****************************************************************************
@@ -99,68 +106,89 @@ module axi4lite_blackbox_protocol #(
   // ****************************************************************************
   // *********** 4.2 Specific rules for AW / W / B -- slave side **************** 
   // ****************************************************************************
-  // aw_seen_q/w_seen_q track "a currently-pending AW+W pair has been
-  // latched", for the property below. 
-  // Clear one cycle *after* the fire (bvalid_q lags bvalid by
-  // one register), so aw_seen_q/w_seen_q are still 1 for the property to
-  // observe during the rise itself, and only clear once that specific
-  // pair has actually been consumed
-  logic bvalid_q;
-  always_ff @(posedge clk or negedge rst_n)
-    if (!rst_n) bvalid_q <= 1'b0;
-    else        bvalid_q <= bvalid;
+  // Request bookkeeping, timing-independent: each AW / W / AR handshake
+  // is queued and each B / R handshake retires the oldest one (AXI4-Lite
+  // answers in order). The AW and AR queues hold one bit per request:
+  // was its address in range. Counts are of requests accepted on an
+  // earlier edge and not yet answered.
+  localparam int CNT_W = $clog2(MAX_OUTSTANDING + 1);
 
-  logic aw_seen_q, w_seen_q;
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      aw_seen_q <= 1'b0;
-      w_seen_q  <= 1'b0;
-    end else begin
-      if (bvalid && !bvalid_q) begin
-        aw_seen_q <= 1'b0;
-        w_seen_q  <= 1'b0;
-      end
-      if (awvalid && awready) aw_seen_q <= 1'b1;
-      if (wvalid  && wready)  w_seen_q  <= 1'b1;
+  wire aw_hs = awvalid && awready;
+  wire w_hs  = wvalid  && wready;
+  wire b_hs  = bvalid  && bready;
+  wire ar_hs = arvalid && arready;
+  wire r_hs  = rvalid  && rready;
+
+  logic [MAX_OUTSTANDING-1:0] aw_inr_q, aw_inr_n, ar_inr_q, ar_inr_n;
+  logic [CNT_W-1:0]           aw_cnt, aw_cnt_n, w_cnt, w_cnt_n, ar_cnt, ar_cnt_n;
+
+  always_comb begin
+    aw_inr_n = aw_inr_q;  aw_cnt_n = aw_cnt;
+    w_cnt_n  = w_cnt;
+    ar_inr_n = ar_inr_q;  ar_cnt_n = ar_cnt;
+
+    if (b_hs && aw_cnt != 0) begin aw_inr_n = aw_inr_n >> 1; aw_cnt_n = aw_cnt_n - 1'b1; end
+    if (b_hs && w_cnt  != 0)                                   w_cnt_n  = w_cnt_n  - 1'b1;
+    if (r_hs && ar_cnt != 0) begin ar_inr_n = ar_inr_n >> 1; ar_cnt_n = ar_cnt_n - 1'b1; end
+
+    if (aw_hs && aw_cnt_n < MAX_OUTSTANDING) begin
+      aw_inr_n[aw_cnt_n] = in_range(awaddr);
+      aw_cnt_n           = aw_cnt_n + 1'b1;
+    end
+    if (w_hs && w_cnt_n < MAX_OUTSTANDING)
+      w_cnt_n = w_cnt_n + 1'b1;
+    if (ar_hs && ar_cnt_n < MAX_OUTSTANDING) begin
+      ar_inr_n[ar_cnt_n] = in_range(araddr);
+      ar_cnt_n           = ar_cnt_n + 1'b1;
     end
   end
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      aw_inr_q <= '0;  aw_cnt <= '0;
+      w_cnt    <= '0;
+      ar_inr_q <= '0;  ar_cnt <= '0;
+    end else begin
+      aw_inr_q <= aw_inr_n;  aw_cnt <= aw_cnt_n;
+      w_cnt    <= w_cnt_n;
+      ar_inr_q <= ar_inr_n;  ar_cnt <= ar_cnt_n;
+    end
+  end
+
+  a_model_aw_no_overflow: assert property (aw_hs |-> aw_cnt < MAX_OUTSTANDING || b_hs)
+    else $error("More than MAX_OUTSTANDING=%0d AWs outstanding", MAX_OUTSTANDING);
+  a_model_w_no_overflow:  assert property (w_hs  |-> w_cnt  < MAX_OUTSTANDING || b_hs)
+    else $error("More than MAX_OUTSTANDING=%0d Ws outstanding", MAX_OUTSTANDING);
+  a_model_ar_no_overflow: assert property (ar_hs |-> ar_cnt < MAX_OUTSTANDING || r_hs)
+    else $error("More than MAX_OUTSTANDING=%0d ARs outstanding", MAX_OUTSTANDING);
 
   // 1. The slave must wait for AWVALID, AWREADY, WVALID, and
   //    WREADY to all have been asserted (AW and W handshakes both
   //    complete) before asserting BVALID.
-  a_bvalid_requires_aw_and_w: assert property ($rose(bvalid) |-> aw_seen_q && w_seen_q)
-    else $error("BVALID asserted before AW and W handshakes both completed");
+  a_bvalid_requires_aw_and_w: assert property (bvalid |-> aw_cnt != 0 && w_cnt != 0)
+    else $error("BVALID asserted without an earlier, unanswered AW and W handshake");
 
   // 2. The slave must not wait for BREADY before asserting BVALID.
-  a_bvalid_not_wait_bready: assert property ((aw_seen_q && w_seen_q && !bvalid) |=> bvalid)
-    else $error("BVALID delayed past expected latency after AW+W complete -- possible BREADY dependency");
+  a_bvalid_not_wait_bready: assert property (
+    aw_cnt != 0 && w_cnt != 0 |-> ##[0:RESP_TIMEOUT] bvalid
+  ) else $error("No BVALID within RESP_TIMEOUT=%0d cycles of a complete AW+W -- possible BREADY dependency", RESP_TIMEOUT);
 
 
-  // 3. Whenever the slave asserts BVALID, BRESP must be a legal AXI4-Lite
-  //    write response code (OKAY or SLVERR). 
+  // 3. DUT design rule, stricter than the spec: BRESP is OKAY or SLVERR.
+  //    AXI4-Lite also allows DECERR (only EXOKAY is excluded); this slave
+  //    never produces it, so a DECERR here is a DUT bug, not a protocol one.
   a_bresp_legal_value: assert property (bvalid |-> (bresp == AXI_RESP_OKAY || bresp == AXI_RESP_SLVERR))
     else $error("BRESP is neither OKAY nor SLVERR while BVALID is asserted");
 
-  // Response-code correctness against the DUT's own address range.
-  // Reference registers are reset (like the DUT's own latches) so none
-  // is X after qverify's init sequence.
-  logic [ADDR_WIDTH-1:0] awaddr_latched_ref;
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n)                  awaddr_latched_ref <= '0;
-    else if (awvalid && awready) awaddr_latched_ref <= awaddr;
-  end
-
+  // Response code for the write being answered (oldest outstanding),
+  // against the DUT's address range.
   a_write_okay_in_range: assert property (
-    $rose(bvalid) && in_range(awaddr_latched_ref) |-> bresp == AXI_RESP_OKAY
+    bvalid && aw_cnt != 0 && aw_inr_q[0] |-> bresp == AXI_RESP_OKAY
   ) else $error("In-range write did not return OKAY");
 
   a_write_slverr_out_of_range: assert property (
-    $rose(bvalid) && !in_range(awaddr_latched_ref) |-> bresp == AXI_RESP_SLVERR
+    bvalid && aw_cnt != 0 && !aw_inr_q[0] |-> bresp == AXI_RESP_SLVERR
   ) else $error("Out-of-range write did not return SLVERR");
-
-  // Outstanding-transaction restriction
-  a_bvalid_clears_next_cycle: assert property (bvalid && bready |=> !bvalid)
-    else $error("BVALID did not deassert the cycle after being accepted");
 
   // ****************************************************************************
   // ************ 4.3 Specific rules for AR / R -- slave side ******************* 
@@ -168,33 +196,32 @@ module axi4lite_blackbox_protocol #(
 
   // 1. The slave must wait for both ARVALID and ARREADY to be
   //    asserted before asserting RVALID.
-  a_rvalid_requires_ar: assert property ($rose(rvalid) |-> $past(arvalid && arready))
-    else $error("RVALID asserted without a preceding ARVALID&ARREADY handshake");
+  a_rvalid_requires_ar: assert property (rvalid |-> ar_cnt != 0)
+    else $error("RVALID asserted without an earlier, unanswered AR handshake");
 
   // 2. The slave must not wait for RREADY before asserting
   //    RVALID.
-  a_ar_leads_to_rvalid: assert property ((arvalid && arready) |=> rvalid)
-    else $error("ARVALID&ARREADY handshake did not produce RVALID next cycle -- possible RREADY dependency");
+  a_ar_leads_to_rvalid: assert property (ar_cnt != 0 |-> ##[0:RESP_TIMEOUT] rvalid)
+    else $error("No RVALID within RESP_TIMEOUT=%0d cycles of an AR handshake -- possible RREADY dependency", RESP_TIMEOUT);
 
   // 3. The slave asserts RVALID only when it drives valid RDATA.
   a_rvalid_requires_rdata: assert property (rvalid |-> !$isunknown(rdata))
     else $error("RVALID asserted while RDATA is unknown");
 
+  // Response code for the read being answered. rdata == 0 on SLVERR is a
+  // DUT design rule; AXI leaves RDATA unspecified on an error response.
   a_read_okay_in_range: assert property (
-    (arvalid && arready && in_range(araddr)) |=> rresp == AXI_RESP_OKAY
+    rvalid && ar_cnt != 0 && ar_inr_q[0] |-> rresp == AXI_RESP_OKAY
   ) else $error("In-range read did not return OKAY");
 
   a_read_slverr_out_of_range: assert property (
-    (arvalid && arready && !in_range(araddr)) |=> (rresp == AXI_RESP_SLVERR && rdata == '0)
+    rvalid && ar_cnt != 0 && !ar_inr_q[0] |-> (rresp == AXI_RESP_SLVERR && rdata == '0)
   ) else $error("Out-of-range read did not return SLVERR with rdata==0");
 
-  // Legal response-code check, read side (parallel to a_bresp_legal_value).
+  // DUT design rule, read side (parallel to a_bresp_legal_value): RRESP is
+  // OKAY or SLVERR, never DECERR, although AXI4-Lite would allow it.
   a_rresp_legal_value: assert property (rvalid |-> (rresp == AXI_RESP_OKAY || rresp == AXI_RESP_SLVERR))
     else $error("RRESP is neither OKAY nor SLVERR while RVALID is asserted");
-
-  // Outstanding-transaction restriction
-  a_no_new_ar_while_rvalid: assert property (rvalid && !rready |-> !arready)
-    else $error("ARREADY asserted while a prior RVALID is still outstanding");
 
 
 

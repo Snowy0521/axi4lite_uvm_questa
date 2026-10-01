@@ -126,6 +126,7 @@ This section specifies the concrete behavior implemented in `axi4lite_slave.sv` 
 
 - On `!rst_n` (asynchronous assert): `aw_hs_done`, `w_hs_done`, `bvalid`, `rvalid` are all forced to `0`
 - `bresp`/`rresp` are cleared to `2'b00`.
+- `regfile` is cleared to 0: a read of a register not written since reset returns 0.
 - `awready`/`wready`/`arready` are combinational function (!) of `*_hs_done`/`rvalid`, so they read HIGH immediately once `rst_n` deasserts.
 
 
