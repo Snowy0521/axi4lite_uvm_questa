@@ -2,11 +2,15 @@
 // formal_tb.sv
 //
 // Top-level formal environment for axi4lite_slave. Instantiates the DUT
-// once, and wires it to axi4lite_assumptions.sv (constrains the environment
-// to legal AXI4-Lite master behavior), axi4lite_assertions.sv (checks the
-// DUT's own obligations, including the whitebox write-strobe checks against
-// the DUT's internal `regfile`), and axi4lite_covers.sv (reachability
-// coverage for the two spec rules that have no assert/assume of their own).
+// once, and wires it to:
+//   - axi4lite_assumptions.sv       -- constrains the environment to legal
+//                                      AXI4-Lite master behavior
+//   - axi4lite_blackbox_protocol.sv -- handshake/response/X checks, AXI
+//                                      ports only
+//   - axi4lite_blackbox_data.sv     -- end-to-end data check, AXI ports only
+//   - axi4lite_whitebox_regfile.sv  -- data checks against the DUT's
+//                                      internal `regfile`
+//   - axi4lite_covers.sv            -- reachability coverage
 //
 // Written to work two ways, selected by compiling with (or without)
 // +define+QUESTA_FORMAL:
@@ -169,13 +173,13 @@ module formal_tb
 `endif
 
   // ------------------------------------------------------------------
-  // DUT obligations (whitebox: regfile wired directly to dut.regfile)
+  // Blackbox protocol checks (AXI ports only)
   // ------------------------------------------------------------------
-  axi4lite_assertions #(
+  axi4lite_blackbox_protocol #(
     .ADDR_WIDTH (ADDR_WIDTH),
     .DATA_WIDTH (DATA_WIDTH),
     .NUM_REGS   (NUM_REGS)
-  ) u_assertions (
+  ) u_bb_protocol (
     .clk     (clk),
     .rst_n   (rst_n),
     .awaddr  (awaddr),
@@ -194,7 +198,60 @@ module formal_tb
     .rdata   (rdata),
     .rresp   (rresp),
     .rvalid  (rvalid),
-    .rready  (rready),
+    .rready  (rready)
+  );
+
+  // ------------------------------------------------------------------
+  // Blackbox end-to-end data check (AXI ports only)
+  // ------------------------------------------------------------------
+  axi4lite_blackbox_data #(
+    .ADDR_WIDTH (ADDR_WIDTH),
+    .DATA_WIDTH (DATA_WIDTH),
+    .NUM_REGS   (NUM_REGS)
+  ) u_bb_data (
+    .clk     (clk),
+    .rst_n   (rst_n),
+    .awaddr  (awaddr),
+    .awvalid (awvalid),
+    .awready (awready),
+    .wdata   (wdata),
+    .wstrb   (wstrb),
+    .wvalid  (wvalid),
+    .wready  (wready),
+    .bresp   (bresp),
+    .bvalid  (bvalid),
+    .bready  (bready),
+    .araddr  (araddr),
+    .arvalid (arvalid),
+    .arready (arready),
+    .rdata   (rdata),
+    .rresp   (rresp),
+    .rvalid  (rvalid),
+    .rready  (rready)
+  );
+
+  // ------------------------------------------------------------------
+  // Whitebox data checks (regfile wired directly to dut.regfile)
+  // ------------------------------------------------------------------
+  axi4lite_whitebox_regfile #(
+    .ADDR_WIDTH (ADDR_WIDTH),
+    .DATA_WIDTH (DATA_WIDTH),
+    .NUM_REGS   (NUM_REGS)
+  ) u_wb_regfile (
+    .clk     (clk),
+    .rst_n   (rst_n),
+    .awaddr  (awaddr),
+    .awvalid (awvalid),
+    .awready (awready),
+    .wdata   (wdata),
+    .wstrb   (wstrb),
+    .wvalid  (wvalid),
+    .wready  (wready),
+    .bvalid  (bvalid),
+    .araddr  (araddr),
+    .arvalid (arvalid),
+    .arready (arready),
+    .rdata   (rdata),
     .regfile (dut.regfile)
   );
 

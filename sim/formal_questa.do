@@ -49,7 +49,9 @@ vlog -sv -timescale 1ns/1ps +define+QUESTA_FORMAL {*}$EXTRA_DEFINES \
      $RTL_DIR/axi4lite_types_pkg.sv \
      $RTL_DIR/axi4lite_slave.sv \
      $FORMAL_DIR/axi4lite_assumptions.sv \
-     $FORMAL_DIR/axi4lite_assertions.sv \
+     $FORMAL_DIR/axi4lite_blackbox_protocol.sv \
+     $FORMAL_DIR/axi4lite_blackbox_data.sv \
+     $FORMAL_DIR/axi4lite_whitebox_regfile.sv \
      $FORMAL_DIR/axi4lite_covers.sv \
      $FORMAL_DIR/formal_tb.sv
 

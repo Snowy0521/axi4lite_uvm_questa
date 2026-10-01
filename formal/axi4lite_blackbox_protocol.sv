@@ -1,10 +1,13 @@
 // ============================================================================
-// axi4lite_assertions.sv
+// axi4lite_blackbox_protocol.sv
 //
-// All `assert property` checks for axi4lite_slave
+// Blackbox protocol checks for axi4lite_slave: handshake rules, response
+// codes and X checks, from the AXI ports alone. Data correctness lives in
+// axi4lite_blackbox_data.sv (end to end) and axi4lite_whitebox_regfile.sv
+// (against the DUT's internal register file).
 //
 // ============================================================================
-module axi4lite_assertions #(
+module axi4lite_blackbox_protocol #(
   parameter int ADDR_WIDTH = 8,
   parameter int DATA_WIDTH = 32,
   parameter int NUM_REGS   = 16
@@ -32,11 +35,7 @@ module axi4lite_assertions #(
   input logic [DATA_WIDTH-1:0]   rdata,
   input logic [1:0]              rresp,
   input logic                    rvalid,
-  input logic                    rready,
-
-  // Whitebox: connect to the DUT's internal register file, e.g.
-  // .regfile(dut.regfile) at the instantiation site in formal_tb.sv.
-  input logic [DATA_WIDTH-1:0]   regfile [NUM_REGS]
+  input logic                    rready
 );
 
   import axi4lite_types_pkg::*;
@@ -52,7 +51,7 @@ module axi4lite_assertions #(
   // One-shot check at elaboration time, not a formal property.
   initial begin
     assert (DATA_WIDTH == 32 || DATA_WIDTH == 64) // AXI4-Lite data bus width must be 32 or 64 bits.
-      else $fatal(1, "axi4lite_assertions: DATA_WIDTH=%0d is not legal, (32 or 64 are desired)", DATA_WIDTH);
+      else $fatal(1, "axi4lite_blackbox_protocol: DATA_WIDTH=%0d is not legal, (32 or 64 are desired)", DATA_WIDTH);
   end
 
   // Module-level default clocking and reset for all properties below. 
@@ -159,57 +158,6 @@ module axi4lite_assertions #(
     $rose(bvalid) && !in_range(awaddr_latched_ref) |-> bresp == AXI_RESP_SLVERR
   ) else $error("Out-of-range write did not return SLVERR");
 
-  // Write-strobe byte-lane correctness, whitebox check against the
-  // connected `regfile` array.
-  logic [DATA_WIDTH-1:0]   wdata_latched_ref;
-  logic [DATA_WIDTH/8-1:0] wstrb_latched_ref;
-  logic [DATA_WIDTH-1:0]   regfile_before_write [NUM_REGS];
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      wdata_latched_ref    <= '0;
-      wstrb_latched_ref    <= '0;
-      regfile_before_write <= '{default: '0};
-    end else begin
-      if (wvalid && wready) begin
-        wdata_latched_ref <= wdata;
-        wstrb_latched_ref <= wstrb;
-      end
-      if (awvalid && awready) regfile_before_write <= regfile;
-    end
-  end
-
-  genvar gb;
-  generate
-    for (gb = 0; gb < DATA_WIDTH/8; gb++) begin : g_strobe_byte_check
-      a_write_enabled_byte_updated: assert property (
-        $rose(bvalid) && in_range(awaddr_latched_ref) && wstrb_latched_ref[gb]
-        |-> regfile[awaddr_latched_ref[ADDR_WIDTH-1:ADDR_LSB]][gb*8+:8] == wdata_latched_ref[gb*8+:8]
-      ) else $error("Byte lane %0d enabled by WSTRB was not written with WDATA", gb);
-
-      a_write_disabled_byte_preserved: assert property (
-        $rose(bvalid) && in_range(awaddr_latched_ref) && !wstrb_latched_ref[gb]
-        |-> regfile[awaddr_latched_ref[ADDR_WIDTH-1:ADDR_LSB]][gb*8+:8]
-              == regfile_before_write[awaddr_latched_ref[ADDR_WIDTH-1:ADDR_LSB]][gb*8+:8]
-      ) else $error("Byte lane %0d masked by WSTRB was modified anyway", gb);
-    end
-  endgenerate
-
-  // Frame condition: a register may change only on the cycle an in-range
-  // write to its own index fires (the regfile update lands on the same
-  // edge BVALID rises). Catches what the byte-lane checks above cannot:
-  // an out-of-range write touching any register, or a write also
-  // clobbering a register other than the addressed one.
-  genvar gr;
-  generate
-    for (gr = 0; gr < NUM_REGS; gr++) begin : g_regfile_frame
-      a_regfile_changes_only_on_own_write: assert property (
-        !$stable(regfile[gr])
-        |-> $rose(bvalid) && in_range(awaddr_latched_ref)
-            && awaddr_latched_ref[ADDR_WIDTH-1:ADDR_LSB] == gr
-      ) else $error("regfile[%0d] changed without an in-range write to it", gr);
-    end
-  endgenerate
-
   // Outstanding-transaction restriction
   a_bvalid_clears_next_cycle: assert property (bvalid && bready |=> !bvalid)
     else $error("BVALID did not deassert the cycle after being accepted");
@@ -235,15 +183,6 @@ module axi4lite_assertions #(
   a_read_okay_in_range: assert property (
     (arvalid && arready && in_range(araddr)) |=> rresp == AXI_RESP_OKAY
   ) else $error("In-range read did not return OKAY");
-
-  // Read-data correctness, whitebox against `regfile`. RDATA is the
-  // register's value at the AR handshake edge -- a write firing on that
-  // same edge is not yet visible -- hence $past, which also samples
-  // araddr at the handshake rather than one cycle later.
-  a_read_data_matches_regfile: assert property (
-    (arvalid && arready && in_range(araddr))
-    |=> rdata == $past(regfile[araddr[ADDR_WIDTH-1:ADDR_LSB]])
-  ) else $error("In-range read returned data different from the addressed register");
 
   a_read_slverr_out_of_range: assert property (
     (arvalid && arready && !in_range(araddr)) |=> (rresp == AXI_RESP_SLVERR && rdata == '0)

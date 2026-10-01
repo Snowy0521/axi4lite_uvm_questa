@@ -32,7 +32,9 @@ axi4lite_uvm/
 │   └── tb_simple.sv                -- plain (non-UVM) direct-drive sanity check
 ├── formal/
 │   ├── axi4lite_assumptions.sv     -- `assume property`: constrains the environment to legal masters (no proof depends on them)
-│   ├── axi4lite_assertions.sv      -- `assert property`: the DUT's own obligations (incl. whitebox WSTRB + read-data checks)
+│   ├── axi4lite_blackbox_protocol.sv -- `assert property`, AXI ports only: handshake rules, response codes, X checks
+│   ├── axi4lite_blackbox_data.sv   -- `assert property`, AXI ports only: end-to-end data check (symbolic address)
+│   ├── axi4lite_whitebox_regfile.sv -- `assert property` against the DUT's internal regfile: WSTRB lanes, read data, frame condition
 │   ├── axi4lite_covers.sv          -- `cover property`: handshake/response/strobe, multi-transaction and mid-transaction-reset reachability
 │   ├── axi4lite_formal_driver.sv   -- legal-master constrained-random driver for simulation-based checking
 │   └── formal_tb.sv                -- top-level formal environment, wires the above + the DUT together
@@ -112,8 +114,8 @@ Questa Formal 2024.3, `make formal-verify-all`:
 
 | Configuration | Asserts            | Covers            |
 |---------------|--------------------|-------------------|
-| 32-bit        | 50 / 50 proven     | 39 / 39 covered   |
-| 64-bit        | 58 / 58 proven     | 39 / 39 covered   |
+| 32-bit        | 56 / 56 proven     | 42 / 42 covered   |
+| 64-bit        | 64 / 64 proven     | 42 / 42 covered   |
 
 - Full proofs (not bounded), none vacuous.
 - `rst_n` is left free after init (`formal verify -auto_constraint_off`),
@@ -122,6 +124,15 @@ Questa Formal 2024.3, `make formal-verify-all`:
 - Read data is checked end to end: `a_read_data_matches_regfile` proves
   RDATA equals the addressed register, and `cp_write_then_read_back`
   shows a written value actually coming back.
+- Data is checked two ways. Blackbox, from the AXI ports alone
+  (`axi4lite_blackbox_data.sv`): `a_e2e_read_data` proves a read returns
+  the value built up by the completed (B handshake, OKAY) writes to that
+  address, for every address at once via a symbolic index `sym_idx` (an
+  unreset register, so its initial value is free -- the one X register
+  after init; `cp_e2e_sym_last_reg` shows it is not stuck at 0). This one
+  is independent of the DUT's latency and storage. Whitebox, against the
+  DUT's `regfile` (`axi4lite_whitebox_regfile.sv`): WSTRB byte lanes,
+  read data, and the frame condition below.
 - Frame condition: `g_regfile_frame[i]` proves register `i` changes only
   on an in-range write to index `i`, so an out-of-range write, or a write
   that also clobbers another register, is caught. Checked by mutation:
@@ -129,7 +140,7 @@ Questa Formal 2024.3, `make formal-verify-all`:
   returning SLVERR) fires it.
 - `make formal-verify-noassume` proves every assert with the assumptions
   compiled out: the DUT is correct against any master, legal or not.
-- Known, benign: roughly 27-31 covers are reported "Covered with
+- Known, benign: roughly 27-32 covers are reported "Covered with
   Warning" (the count and the set vary from run to run). Cause: at the
   first tick after init, `$rose()`/`$stable()` have no previous sample
   (the LRM gives it the type's default, X), and qverify models that

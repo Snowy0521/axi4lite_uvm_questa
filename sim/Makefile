@@ -62,7 +62,9 @@ TB_FILES  := $(TB_DIR)/axi4lite_pkg.sv \
              $(TB_DIR)/axi4lite_if.sv \
              $(TB_DIR)/tb_top.sv
 FORMAL_FILES := $(FORMAL_DIR)/axi4lite_assumptions.sv \
-                $(FORMAL_DIR)/axi4lite_assertions.sv \
+                $(FORMAL_DIR)/axi4lite_blackbox_protocol.sv \
+                $(FORMAL_DIR)/axi4lite_blackbox_data.sv \
+                $(FORMAL_DIR)/axi4lite_whitebox_regfile.sv \
                 $(FORMAL_DIR)/axi4lite_covers.sv \
                 $(FORMAL_DIR)/axi4lite_formal_driver.sv \
                 $(FORMAL_DIR)/formal_tb.sv
