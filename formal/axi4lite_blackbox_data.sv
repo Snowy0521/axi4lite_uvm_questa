@@ -15,9 +15,11 @@
 // proof covers every index at once. In simulation (flow #2) it is picked
 // at random per seed.
 //
-// Timing-agnostic: AW, W and AR/R are queued at their handshakes
-// (MAX_OUTSTANDING deep, the most the current DUT accepts; the
-// a_e2e_*_no_overflow asserts fire if a DUT ever exceeds it). A read is
+// Timing-agnostic: AW, W and AR/R are queued at their handshakes in
+// axi4lite_fifo_model instances (MAX_OUTSTANDING deep, the most the
+// current DUT accepts; their a_no_overflow fires if a DUT ever exceeds
+// it). That every B / R answers an earlier request is checked in
+// axi4lite_blackbox_protocol.sv, not repeated here. A read is
 // only checked when no write to sym_idx is outstanding at its AR
 // handshake and none is accepted while it is in flight -- AXI4-Lite
 // allows either the old or the new value in that window.
@@ -85,122 +87,64 @@ module axi4lite_blackbox_data
 
   // ------------------------------------------------------------------
   // Write side: AW queue (does the address hit sym_idx?) and W queue
-  // (data/strobe), popped together by each B handshake -- AXI4-Lite
-  // answers writes in order.
+  // (data/strobe), popped together by each B handshake.
   // ------------------------------------------------------------------
-  logic [MAX_OUTSTANDING-1:0] aw_hit_q, aw_hit_n;
-  logic [CNT_W-1:0]           aw_cnt,   aw_cnt_n;
-  logic [DATA_WIDTH-1:0]      w_data_q [MAX_OUTSTANDING];
-  logic [DATA_WIDTH-1:0]      w_data_n [MAX_OUTSTANDING];
-  logic [STRB_W-1:0]          w_strb_q [MAX_OUTSTANDING];
-  logic [STRB_W-1:0]          w_strb_n [MAX_OUTSTANDING];
-  logic [CNT_W-1:0]           w_cnt,    w_cnt_n;
+  logic                  aw_hit_head;
+  logic [DATA_WIDTH-1:0] w_data_head;
+  logic [STRB_W-1:0]     w_strb_head;
+  logic [CNT_W-1:0]      aw_cnt, w_cnt;
 
-  always_comb begin
-    aw_hit_n = aw_hit_q;
-    aw_cnt_n = aw_cnt;
-    if (b_hs && aw_cnt != 0) begin
-      aw_hit_n = aw_hit_n >> 1;
-      aw_cnt_n = aw_cnt_n - 1'b1;
-    end
-    if (aw_hs && aw_cnt_n < MAX_OUTSTANDING) begin
-      aw_hit_n[aw_cnt_n] = aw_hit;
-      aw_cnt_n           = aw_cnt_n + 1'b1;
-    end
-
-    w_data_n = w_data_q;
-    w_strb_n = w_strb_q;
-    w_cnt_n  = w_cnt;
-    if (b_hs && w_cnt != 0) begin
-      for (int i = 0; i < MAX_OUTSTANDING - 1; i++) begin
-        w_data_n[i] = w_data_n[i+1];
-        w_strb_n[i] = w_strb_n[i+1];
-      end
-      w_cnt_n = w_cnt_n - 1'b1;
-    end
-    if (w_hs && w_cnt_n < MAX_OUTSTANDING) begin
-      w_data_n[w_cnt_n] = wdata;
-      w_strb_n[w_cnt_n] = wstrb;
-      w_cnt_n           = w_cnt_n + 1'b1;
-    end
-  end
+  axi4lite_fifo_model #(.W(1), .DEPTH(MAX_OUTSTANDING)) u_aw_q (
+    .clk, .rst_n, .push(aw_hs), .din(aw_hit), .pop(b_hs),
+    .clr_flag(1'b0), .head(aw_hit_head), .count(aw_cnt));
+  axi4lite_fifo_model #(.W(STRB_W + DATA_WIDTH), .DEPTH(MAX_OUTSTANDING)) u_w_q (
+    .clk, .rst_n, .push(w_hs), .din({wstrb, wdata}), .pop(b_hs),
+    .clr_flag(1'b0), .head({w_strb_head, w_data_head}), .count(w_cnt));
 
   // ------------------------------------------------------------------
   // Reference value of register sym_idx. A write to it takes effect at
   // its B handshake (OKAY only); exp_now includes a commit on this edge.
   // ------------------------------------------------------------------
   logic [DATA_WIDTH-1:0] exp_q, exp_now;
-  wire commit = b_hs && aw_cnt != 0 && w_cnt != 0 && aw_hit_q[0]
+  wire commit = b_hs && aw_cnt != 0 && w_cnt != 0 && aw_hit_head
                 && bresp == AXI_RESP_OKAY;
 
   always_comb begin
     exp_now = exp_q;
     if (commit)
       for (int b = 0; b < STRB_W; b++)
-        if (w_strb_q[0][b]) exp_now[b*8 +: 8] = w_data_q[0][b*8 +: 8];
+        if (w_strb_head[b]) exp_now[b*8 +: 8] = w_data_head[b*8 +: 8];
   end
 
-  // A write to sym_idx is outstanding after this edge: accepted on AW
-  // (now or earlier) and not answered on B (the head popped now is done).
-  logic sym_wr_pending;
-  always_comb begin
-    sym_wr_pending = aw_hs && aw_hit;
-    for (int i = 0; i < MAX_OUTSTANDING; i++)
-      if (i < aw_cnt && !(i == 0 && b_hs) && aw_hit_q[i])
-        sym_wr_pending = 1'b1;
-  end
+  // Writes to sym_idx accepted on AW and not yet answered on B. After
+  // this edge's B (which retires the head) and AW, one is outstanding iff
+  // sym_wr_pending.
+  logic [CNT_W-1:0] sym_wr_cnt;
+  wire  sym_wr_retire  = b_hs && aw_cnt != 0 && aw_hit_head;
+  wire  sym_wr_accept  = aw_hs && aw_hit;
+  wire  sym_wr_pending = (sym_wr_cnt - sym_wr_retire) != 0 || sym_wr_accept;
 
   // ------------------------------------------------------------------
-  // Read side: per accepted AR, whether to check it and what to expect;
-  // popped by each R handshake (in order).
+  // Read side: per accepted AR, {expected value, check it?}, popped by
+  // each R handshake. A write to sym_idx accepted while reads are in
+  // flight clears their check bit (bit 0): either value is legal then.
   // ------------------------------------------------------------------
-  logic [MAX_OUTSTANDING-1:0] rd_chk_q, rd_chk_n;
-  logic [DATA_WIDTH-1:0]      rd_exp_q [MAX_OUTSTANDING];
-  logic [DATA_WIDTH-1:0]      rd_exp_n [MAX_OUTSTANDING];
-  logic [CNT_W-1:0]           rd_cnt,   rd_cnt_n;
+  logic                  rd_chk_head;
+  logic [DATA_WIDTH-1:0] rd_exp_head;
+  logic [CNT_W-1:0]      rd_cnt;
 
-  always_comb begin
-    rd_chk_n = rd_chk_q;
-    rd_exp_n = rd_exp_q;
-    rd_cnt_n = rd_cnt;
-    if (r_hs && rd_cnt != 0) begin
-      rd_chk_n = rd_chk_n >> 1;
-      for (int i = 0; i < MAX_OUTSTANDING - 1; i++)
-        rd_exp_n[i] = rd_exp_n[i+1];
-      rd_cnt_n = rd_cnt_n - 1'b1;
-    end
-    // A write to sym_idx accepted while reads are in flight: they may
-    // legally return either value, so stop checking them.
-    if (aw_hs && aw_hit)
-      rd_chk_n = '0;
-    if (ar_hs && rd_cnt_n < MAX_OUTSTANDING) begin
-      rd_chk_n[rd_cnt_n] = ar_hit && !sym_wr_pending;
-      rd_exp_n[rd_cnt_n] = exp_now;
-      rd_cnt_n           = rd_cnt_n + 1'b1;
-    end
-  end
+  axi4lite_fifo_model #(.W(DATA_WIDTH + 1), .DEPTH(MAX_OUTSTANDING)) u_rd_q (
+    .clk, .rst_n, .push(ar_hs), .din({exp_now, ar_hit && !sym_wr_pending}),
+    .pop(r_hs), .clr_flag(sym_wr_accept),
+    .head({rd_exp_head, rd_chk_head}), .count(rd_cnt));
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      aw_hit_q <= '0;
-      aw_cnt   <= '0;
-      w_data_q <= '{default: '0};
-      w_strb_q <= '{default: '0};
-      w_cnt    <= '0;
-      exp_q    <= '0;
-      rd_chk_q <= '0;
-      rd_exp_q <= '{default: '0};
-      rd_cnt   <= '0;
+      exp_q      <= '0;
+      sym_wr_cnt <= '0;
     end else begin
-      aw_hit_q <= aw_hit_n;
-      aw_cnt   <= aw_cnt_n;
-      w_data_q <= w_data_n;
-      w_strb_q <= w_strb_n;
-      w_cnt    <= w_cnt_n;
-      exp_q    <= exp_now;
-      rd_chk_q <= rd_chk_n;
-      rd_exp_q <= rd_exp_n;
-      rd_cnt   <= rd_cnt_n;
+      exp_q      <= exp_now;
+      sym_wr_cnt <= sym_wr_cnt - sym_wr_retire + sym_wr_accept;
     end
   end
 
@@ -208,39 +152,23 @@ module axi4lite_blackbox_data
   // The end-to-end check
   // ------------------------------------------------------------------
   a_e2e_read_data: assert property (
-    r_hs && rd_cnt != 0 && rd_chk_q[0] && rresp == AXI_RESP_OKAY
-    |-> rdata == rd_exp_q[0]
+    r_hs && rd_cnt != 0 && rd_chk_head && rresp == AXI_RESP_OKAY
+    |-> rdata == rd_exp_head
   ) else $error("Read of word %0d returned 0x%0h, expected 0x%0h from completed writes",
-                sym_idx, rdata, rd_exp_q[0]);
-
-  // ------------------------------------------------------------------
-  // Model sanity: every response matches an accepted request, and the
-  // queues are deep enough for this DUT.
-  // ------------------------------------------------------------------
-  a_e2e_b_has_write: assert property (b_hs |-> aw_cnt != 0 && w_cnt != 0)
-    else $error("B handshake without an accepted AW and W");
-  a_e2e_r_has_read: assert property (r_hs |-> rd_cnt != 0)
-    else $error("R handshake without an accepted AR");
-
-  a_e2e_aw_no_overflow: assert property (aw_hs |-> aw_cnt < MAX_OUTSTANDING || b_hs)
-    else $error("More than MAX_OUTSTANDING=%0d AWs outstanding", MAX_OUTSTANDING);
-  a_e2e_w_no_overflow:  assert property (w_hs  |-> w_cnt  < MAX_OUTSTANDING || b_hs)
-    else $error("More than MAX_OUTSTANDING=%0d Ws outstanding", MAX_OUTSTANDING);
-  a_e2e_ar_no_overflow: assert property (ar_hs |-> rd_cnt < MAX_OUTSTANDING || r_hs)
-    else $error("More than MAX_OUTSTANDING=%0d ARs outstanding", MAX_OUTSTANDING);
+                sym_idx, rdata, rd_exp_head);
 
   // ------------------------------------------------------------------
   // Non-vacuity: the check fires on real, merged data, and sym_idx is
   // actually free (would be uncoverable if the tool fixed it at 0).
   // ------------------------------------------------------------------
   cp_e2e_read_checked_nonzero: cover property (
-    r_hs && rd_cnt != 0 && rd_chk_q[0] && rresp == AXI_RESP_OKAY && rd_exp_q[0] != '0
+    r_hs && rd_cnt != 0 && rd_chk_head && rresp == AXI_RESP_OKAY && rd_exp_head != '0
   );
   cp_e2e_partial_strobe_merge: cover property (
-    commit && exp_q != '0 && w_strb_q[0] != '0 && w_strb_q[0] != '1
+    commit && exp_q != '0 && w_strb_head != '0 && w_strb_head != '1
   );
   cp_e2e_sym_last_reg: cover property (
-    sym_idx == IDX_W'(NUM_REGS - 1) && r_hs && rd_cnt != 0 && rd_chk_q[0]
+    sym_idx == IDX_W'(NUM_REGS - 1) && r_hs && rd_cnt != 0 && rd_chk_head
   );
 
 endmodule

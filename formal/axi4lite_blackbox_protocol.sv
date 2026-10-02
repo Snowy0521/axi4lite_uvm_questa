@@ -12,12 +12,16 @@ module axi4lite_blackbox_protocol #(
   parameter int DATA_WIDTH = 32,
   parameter int NUM_REGS   = 16,
   // Most accepted-but-unanswered requests per channel the bookkeeping
-  // below tracks (the a_model_*_no_overflow asserts fire if a DUT exceeds it).
+  // below tracks (each axi4lite_fifo_model's a_no_overflow fires if a DUT
+  // exceeds it).
   parameter int MAX_OUTSTANDING = 2,
   // "Must not wait for READY" is checked as: a pending response appears
   // within RESP_TIMEOUT cycles even if READY stays low. A deadlock bound,
   // not the DUT's latency (1-2 cycles today).
-  parameter int RESP_TIMEOUT    = 8
+  parameter int RESP_TIMEOUT    = 8,
+  // An idle slave raises AWREADY / WREADY / ARREADY within READY_TIMEOUT
+  // cycles of the matching VALID (section 4.4). Also a deadlock bound.
+  parameter int READY_TIMEOUT   = 8
 )(
   input logic                    clk,
   input logic                    rst_n,
@@ -119,48 +123,19 @@ module axi4lite_blackbox_protocol #(
   wire ar_hs = arvalid && arready;
   wire r_hs  = rvalid  && rready;
 
-  logic [MAX_OUTSTANDING-1:0] aw_inr_q, aw_inr_n, ar_inr_q, ar_inr_n;
-  logic [CNT_W-1:0]           aw_cnt, aw_cnt_n, w_cnt, w_cnt_n, ar_cnt, ar_cnt_n;
+  logic             aw_inr_head, ar_inr_head;   // oldest request in range?
+  logic             w_unused;
+  logic [CNT_W-1:0] aw_cnt, w_cnt, ar_cnt;
 
-  always_comb begin
-    aw_inr_n = aw_inr_q;  aw_cnt_n = aw_cnt;
-    w_cnt_n  = w_cnt;
-    ar_inr_n = ar_inr_q;  ar_cnt_n = ar_cnt;
-
-    if (b_hs && aw_cnt != 0) begin aw_inr_n = aw_inr_n >> 1; aw_cnt_n = aw_cnt_n - 1'b1; end
-    if (b_hs && w_cnt  != 0)                                   w_cnt_n  = w_cnt_n  - 1'b1;
-    if (r_hs && ar_cnt != 0) begin ar_inr_n = ar_inr_n >> 1; ar_cnt_n = ar_cnt_n - 1'b1; end
-
-    if (aw_hs && aw_cnt_n < MAX_OUTSTANDING) begin
-      aw_inr_n[aw_cnt_n] = in_range(awaddr);
-      aw_cnt_n           = aw_cnt_n + 1'b1;
-    end
-    if (w_hs && w_cnt_n < MAX_OUTSTANDING)
-      w_cnt_n = w_cnt_n + 1'b1;
-    if (ar_hs && ar_cnt_n < MAX_OUTSTANDING) begin
-      ar_inr_n[ar_cnt_n] = in_range(araddr);
-      ar_cnt_n           = ar_cnt_n + 1'b1;
-    end
-  end
-
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      aw_inr_q <= '0;  aw_cnt <= '0;
-      w_cnt    <= '0;
-      ar_inr_q <= '0;  ar_cnt <= '0;
-    end else begin
-      aw_inr_q <= aw_inr_n;  aw_cnt <= aw_cnt_n;
-      w_cnt    <= w_cnt_n;
-      ar_inr_q <= ar_inr_n;  ar_cnt <= ar_cnt_n;
-    end
-  end
-
-  a_model_aw_no_overflow: assert property (aw_hs |-> aw_cnt < MAX_OUTSTANDING || b_hs)
-    else $error("More than MAX_OUTSTANDING=%0d AWs outstanding", MAX_OUTSTANDING);
-  a_model_w_no_overflow:  assert property (w_hs  |-> w_cnt  < MAX_OUTSTANDING || b_hs)
-    else $error("More than MAX_OUTSTANDING=%0d Ws outstanding", MAX_OUTSTANDING);
-  a_model_ar_no_overflow: assert property (ar_hs |-> ar_cnt < MAX_OUTSTANDING || r_hs)
-    else $error("More than MAX_OUTSTANDING=%0d ARs outstanding", MAX_OUTSTANDING);
+  axi4lite_fifo_model #(.W(1), .DEPTH(MAX_OUTSTANDING)) u_aw_q (
+    .clk, .rst_n, .push(aw_hs), .din(in_range(awaddr)), .pop(b_hs),
+    .clr_flag(1'b0), .head(aw_inr_head), .count(aw_cnt));
+  axi4lite_fifo_model #(.W(1), .DEPTH(MAX_OUTSTANDING)) u_w_q (
+    .clk, .rst_n, .push(w_hs), .din(1'b0), .pop(b_hs),
+    .clr_flag(1'b0), .head(w_unused), .count(w_cnt));
+  axi4lite_fifo_model #(.W(1), .DEPTH(MAX_OUTSTANDING)) u_ar_q (
+    .clk, .rst_n, .push(ar_hs), .din(in_range(araddr)), .pop(r_hs),
+    .clr_flag(1'b0), .head(ar_inr_head), .count(ar_cnt));
 
   // 1. The slave must wait for AWVALID, AWREADY, WVALID, and
   //    WREADY to all have been asserted (AW and W handshakes both
@@ -183,11 +158,11 @@ module axi4lite_blackbox_protocol #(
   // Response code for the write being answered (oldest outstanding),
   // against the DUT's address range.
   a_write_okay_in_range: assert property (
-    bvalid && aw_cnt != 0 && aw_inr_q[0] |-> bresp == AXI_RESP_OKAY
+    bvalid && aw_cnt != 0 && aw_inr_head |-> bresp == AXI_RESP_OKAY
   ) else $error("In-range write did not return OKAY");
 
   a_write_slverr_out_of_range: assert property (
-    bvalid && aw_cnt != 0 && !aw_inr_q[0] |-> bresp == AXI_RESP_SLVERR
+    bvalid && aw_cnt != 0 && !aw_inr_head |-> bresp == AXI_RESP_SLVERR
   ) else $error("Out-of-range write did not return SLVERR");
 
   // ****************************************************************************
@@ -211,17 +186,40 @@ module axi4lite_blackbox_protocol #(
   // Response code for the read being answered. rdata == 0 on SLVERR is a
   // DUT design rule; AXI leaves RDATA unspecified on an error response.
   a_read_okay_in_range: assert property (
-    rvalid && ar_cnt != 0 && ar_inr_q[0] |-> rresp == AXI_RESP_OKAY
+    rvalid && ar_cnt != 0 && ar_inr_head |-> rresp == AXI_RESP_OKAY
   ) else $error("In-range read did not return OKAY");
 
   a_read_slverr_out_of_range: assert property (
-    rvalid && ar_cnt != 0 && !ar_inr_q[0] |-> (rresp == AXI_RESP_SLVERR && rdata == '0)
+    rvalid && ar_cnt != 0 && !ar_inr_head |-> (rresp == AXI_RESP_SLVERR && rdata == '0)
   ) else $error("Out-of-range read did not return SLVERR with rdata==0");
 
   // DUT design rule, read side (parallel to a_bresp_legal_value): RRESP is
   // OKAY or SLVERR, never DECERR, although AXI4-Lite would allow it.
   a_rresp_legal_value: assert property (rvalid |-> (rresp == AXI_RESP_OKAY || rresp == AXI_RESP_SLVERR))
     else $error("RRESP is neither OKAY nor SLVERR while RVALID is asserted");
+
+  // ****************************************************************************
+  // ************ 4.4 Request acceptance -- DUT design rules ********************
+  // ****************************************************************************
+  // AXI lets a slave hold READY low for as long as it likes, so a slave
+  // that never accepts anything breaks no rule above: with no handshake,
+  // nothing is ever checked. These close that gap for this DUT: with no
+  // request of the same kind outstanding, a VALID is accepted within
+  // READY_TIMEOUT cycles. Only when idle -- once a request is accepted,
+  // the slave may legally stall on the master (a W that never comes, a
+  // BREADY / RREADY held low). AW and W are independent here (this slave
+  // never makes AWREADY wait for WVALID or the reverse, which AXI allows).
+  a_awready_when_idle: assert property (
+    awvalid && aw_cnt == 0 |-> ##[0:READY_TIMEOUT] awready
+  ) else $error("Idle slave did not raise AWREADY within READY_TIMEOUT=%0d cycles", READY_TIMEOUT);
+
+  a_wready_when_idle: assert property (
+    wvalid && w_cnt == 0 |-> ##[0:READY_TIMEOUT] wready
+  ) else $error("Idle slave did not raise WREADY within READY_TIMEOUT=%0d cycles", READY_TIMEOUT);
+
+  a_arready_when_idle: assert property (
+    arvalid && ar_cnt == 0 |-> ##[0:READY_TIMEOUT] arready
+  ) else $error("Idle slave did not raise ARREADY within READY_TIMEOUT=%0d cycles", READY_TIMEOUT);
 
 
 

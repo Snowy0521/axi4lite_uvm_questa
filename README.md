@@ -35,6 +35,7 @@ axi4lite_uvm/
 │   ├── axi4lite_blackbox_protocol.sv -- `assert property`, AXI ports only: handshake rules, response codes, X checks
 │   ├── axi4lite_blackbox_data.sv   -- `assert property`, AXI ports only: end-to-end data check (symbolic address)
 │   ├── axi4lite_whitebox_regfile.sv -- `assert property` against the DUT's internal regfile: WSTRB lanes, read data, frame condition
+│   ├── axi4lite_fifo_model.sv      -- in-order request queue shared by the blackbox checkers (with overflow assert)
 │   ├── axi4lite_covers.sv          -- `cover property`: handshake/response/strobe, multi-transaction and mid-transaction-reset reachability
 │   ├── axi4lite_formal_driver.sv   -- legal-master constrained-random driver for simulation-based checking
 │   └── formal_tb.sv                -- top-level formal environment, wires the above + the DUT together
@@ -110,57 +111,39 @@ make clean
 
 ## Formal results
 
-Questa Formal 2024.3, `make formal-verify-all`:
+Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), none vacuous:
 
 | Configuration | Asserts            | Covers            |
 |---------------|--------------------|-------------------|
-| 32-bit        | 56 / 56 proven     | 42 / 42 covered   |
-| 64-bit        | 64 / 64 proven     | 42 / 42 covered   |
+| 32-bit        | 57 / 57 proven     | 42 / 42 covered   |
+| 64-bit        | 65 / 65 proven     | 42 / 42 covered   |
 
-- Full proofs (not bounded), none vacuous.
-- `rst_n` is left free after init (`formal verify -auto_constraint_off`),
-  so reset asserted mid-transaction is part of every proof, and covers
-  show the slave recovering from it.
-- Read data is checked end to end: `a_read_data_matches_regfile` proves
-  RDATA equals the addressed register, and `cp_write_then_read_back`
-  shows a written value actually coming back.
-- Data is checked two ways. Blackbox, from the AXI ports alone
-  (`axi4lite_blackbox_data.sv`): `a_e2e_read_data` proves a read returns
-  the value built up by the completed (B handshake, OKAY) writes to that
-  address, for every address at once via a symbolic index `sym_idx` (an
-  unreset register, so its initial value is free -- the one X register
-  after init; `cp_e2e_sym_last_reg` shows it is not stuck at 0). This one
-  is independent of the DUT's latency and storage. Whitebox, against the
-  DUT's `regfile` (`axi4lite_whitebox_regfile.sv`): WSTRB byte lanes,
-  read data, and the frame condition below.
-- Frame condition: `g_regfile_frame[i]` proves register `i` changes only
-  on an in-range write to index `i`, so an out-of-range write, or a write
-  that also clobbers another register, is caught. Checked by mutation:
-  aliasing out-of-range writes onto `regfile[word_idx[3:0]]` (while still
-  returning SLVERR) fires it.
-- `make formal-verify-noassume` proves every assert with the assumptions
-  compiled out: the DUT is correct against any master, legal or not.
-- Known, benign: roughly 27-32 covers are reported "Covered with
-  Warning" (the count and the set vary from run to run). Cause: at the
-  first tick after init, `$rose()`/`$stable()` have no previous sample
-  (the LRM gives it the type's default, X), and qverify models that
-  history value as a free "modeling" control point. A witness that
-  assigns one gets flagged. Confirmed in the GUI's Control Point Values
-  window: `u_covers.$rose(arvalid)` for `cp_ar_ready_preasserted`, and
-  `u_assumptions.$stable(wdata)`/`$stable(wstrb)` for
-  `cp_w_before_aw_master` (assumptions sit in every cover's cone of
-  influence). Impact:
-  - Asserts: none. A free history bit only adds behaviors, so it can
-    cause a spurious failure, never a false proof.
-  - Covers: a witness could in principle rely on a history value that
-    can't occur. The flagged covers all have ordinary legal traces.
-    Rewriting `$rose(x) && ...` as `!x ##1 (x && ...)` was shown to clear
-    the flag on the `cp_*_ready_preasserted` covers; replacing the
-    assumptions' `$stable` with reset registers should clear the rest
-    but was not run to completion. The standard SVA forms are kept for
-    readability.
-
-
+- **Assumption-free**: `make formal-verify-noassume` proves every assert
+  with the assumptions compiled out -- correct against any master.
+- **Free reset**: `rst_n` stays free after init (`-auto_constraint_off`),
+  so reset mid-transaction is part of every proof.
+- **Blackbox checks don't depend on the implementation.** Responses are
+  paired with their requests through in-order queues
+  (`axi4lite_fifo_model.sv`); "must not wait for READY" is bounded by
+  `RESP_TIMEOUT`, not a fixed latency. An idle slave must raise
+  AWREADY / WREADY / ARREADY within `READY_TIMEOUT` (`a_*ready_when_idle`),
+  so a slave that never accepts a request can't pass by never being
+  checked. `a_e2e_read_data` checks every read
+  against the completed writes to a symbolic address `sym_idx` (unreset,
+  hence free: one proof covers every address). Shown with a legal change,
+  read latency 1 -> 2 cycles: every blackbox assert still proves, while
+  the earlier fixed-latency versions (e.g. `a_ar_leads_to_rvalid`) and the
+  whitebox `a_read_data_matches_regfile` fire.
+- **Whitebox checks** against `dut.regfile`: WSTRB byte lanes, read data,
+  and a frame condition (a register changes only on an in-range write to it).
+- **Mutation**: aliasing out-of-range writes onto `regfile[word_idx[3:0]]`
+  (still answering SLVERR) fires both `a_e2e_read_data` and the frame condition.
+- **Known, benign: ~27-32 covers are "Covered with Warning".** At the first
+  tick `$rose`/`$stable` have no previous sample; qverify models it as a
+  free control point and flags witnesses that assign it (confirmed in the
+  Control Point Values window). This can't cause a false proof, and every
+  flagged cover has a legal trace; rewriting e.g. `$rose(x) && y` as
+  `!x ##1 (x && y)` clears it, but the standard SVA forms are kept.
 
 ## Next steps / extension points
 
