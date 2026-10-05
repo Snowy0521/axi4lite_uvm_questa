@@ -129,7 +129,13 @@ class axi4lite_random_seq extends axi4lite_base_seq;
           [0 : (NUM_REGS-1)*STRB_WIDTH]      :/ 90,   // in-range, word-aligned
           [NUM_REGS*STRB_WIDTH : MAX_ADDR]   :/ 10    // out-of-range -> SLVERR path
         };
-	      wstrb dist {['0 : '1]};
+        // Weighted so cp_wstrb's all-zero / all-one bins are hit at 64-bit
+        // too: uniform gives each only 1/2^STRB_WIDTH (1/256 at 64-bit).
+        wstrb dist {
+          0                                     :/ 10,   // writes nothing
+          {STRB_WIDTH{1'b1}}                    :/ 20,   // full word
+          [1 : {STRB_WIDTH{1'b1}} - 1]          :/ 70    // partial
+        };
       }) `uvm_error("SEQ", "randomize failed in axi4lite_random_seq for write transaction")
       finish_item(wr);
 

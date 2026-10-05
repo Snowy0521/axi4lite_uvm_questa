@@ -39,6 +39,10 @@
 TEST      ?= axi4lite_smoke_test
 SEED      ?= 42
 N         ?= 20
+# uvm-sweep fails a seed whose functional coverage is below COV_GOAL (%).
+# 100 for the random test (sign-off); the smoke test only reaches part of
+# the model by design, so it isn't held to it.
+COV_GOAL  ?= $(if $(filter axi4lite_random_test,$(TEST)),100,0)
 RTL_DIR   := ../rtl
 TB_DIR    := ../tb
 FORMAL_DIR := ../formal
@@ -131,6 +135,7 @@ uvm-sweep: uvm-build
 	         +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish exit -do "run -all; quit -f" 2>&1); \
 	  errs=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_ERROR :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
 	  fatals=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_FATAL :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
+	  cov=$$(echo "$$out" | sed -n 's/.*Overall coverage for [^:]*: *\([0-9.]*\)%.*/\1/p' | tail -1); \
 	  if [ -z "$$errs" ] || [ -z "$$fatals" ]; then \
 	    echo "seed $$s: FAILED (no UVM report summary found -- crashed or hung?)"; \
 	    echo "$$out" | tail -30 | sed 's/^/    /'; \
@@ -138,12 +143,15 @@ uvm-sweep: uvm-build
 	  elif [ "$$errs" -gt 0 ] || [ "$$fatals" -gt 0 ]; then \
 	    echo "seed $$s: FAILED (UVM_ERROR=$$errs UVM_FATAL=$$fatals)"; \
 	    fail=1; \
+	  elif ! awk -v c="$$cov" -v g="$(COV_GOAL)" 'BEGIN { exit !(c != "" && c + 0 >= g + 0) }'; then \
+	    echo "seed $$s: FAILED (coverage $${cov:-not reported}% < COV_GOAL=$(COV_GOAL)%)"; \
+	    fail=1; \
 	  else \
-	    echo "seed $$s: OK"; \
+	    echo "seed $$s: OK (coverage $$cov%)"; \
 	  fi; \
 	done; \
 	if [ "$$fail" -eq 0 ]; then \
-	  echo "ALL $(N) SEEDS PASSED (TEST=$(TEST))"; \
+	  echo "ALL $(N) SEEDS PASSED (TEST=$(TEST), COV_GOAL=$(COV_GOAL)%)"; \
 	else \
 	  echo "SOME SEEDS FAILED (TEST=$(TEST))"; \
 	  exit 1; \

@@ -29,10 +29,14 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
             bins out_of_range = {[axi4lite_pkg::NUM_REGS*axi4lite_pkg::STRB_WIDTH : axi4lite_pkg::MAX_ADDR]};
         }
 
-        cp_wdata: coverpoint wdata iff (op == AXI_WRITE) {
-            bins low = {['0 : (2**(axi4lite_pkg::DATA_WIDTH-2)) - 1]};
-            bins mid = {[(2**(axi4lite_pkg::DATA_WIDTH-2)) : (2**(axi4lite_pkg::DATA_WIDTH-1)) - 1]};
-            bins high = {[(2**(axi4lite_pkg::DATA_WIDTH-1)) : (2**axi4lite_pkg::DATA_WIDTH) - 1]};
+        // Binned on the top two bits: same ranges as [0, 2^(W-2)),
+        // [2^(W-2), 2^(W-1)), [2^(W-1), 2^W), but 2**(W-1) overflows a
+        // 32-bit int (W=32: bin 'high' was silently dropped; W=64: all
+        // three bins covered every value).
+        cp_wdata: coverpoint wdata[axi4lite_pkg::DATA_WIDTH-1 -: 2] iff (op == AXI_WRITE) {
+            bins low  = {2'b00};
+            bins mid  = {2'b01};
+            bins high = {[2'b10 : 2'b11]};
         }
 
         cp_wstrb: coverpoint wstrb iff (op == AXI_WRITE) {
