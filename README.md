@@ -21,7 +21,7 @@ axi4lite_uvm/
 │   ├── axi4lite_sequencer.sv       -- uvm_sequencer typedef
 │   ├── axi4lite_sequences.sv       -- directed write/read seqs + randomized traffic seq
 │   ├── axi4lite_driver.sv          -- drives transactions onto the bus (AW/W concurrent, timeout-protected)
-│   ├── axi4lite_monitor.sv         -- passively reconstructs transactions, broadcasts via analysis port
+│   ├── axi4lite_monitor.sv         -- passively reconstructs transactions, broadcasts via analysis port; end-of-test outstanding check
 │   ├── axi4lite_agent.sv           -- driver + sequencer + monitor container (active/passive capable)
 │   ├── axi4lite_scoreboard.sv      -- shadow-register-model checker
 │   ├── axi4lite_coverage_collector.sv -- functional coverage (op x address-region, wstrb, resp)
@@ -109,6 +109,43 @@ make formal-verify-noassume                    # proof without assumptions: show
 make clean
 ```
 
+## UVM testbench
+
+- **Stimulus.** `axi4lite_smoke_test`: `NUM_SMOKE_TXNS` full-word writes,
+  then reads them back. `axi4lite_random_test`: `NUM_TXNS` write/read-back
+  pairs, address 90% in range / 10% out of range (SLVERR path), random
+  WSTRB including all-zero and partial strobes.
+- **Scoreboard.** Keeps its own copy of the register file, updated on every
+  in-range OKAY write with WSTRB byte merging; every in-range read is
+  compared against it. In-range accesses must return OKAY, out-of-range
+  ones SLVERR.
+- **Coverage.** Op x address region (in / out of range), WDATA ranges,
+  WSTRB (all-zero, all-one, partial), response codes. `illegal_bins` in
+  the address x response cross also flag an OKAY to an out-of-range
+  address or a SLVERR to an in-range one.
+- **Timeouts.** If a READY or response doesn't arrive within
+  `TIMEOUT_CYCLES`, the driver stops the test with a `DRV_TIMEOUT` fatal
+  naming the transaction, so the first error in the log is the real cause
+  rather than a cascade from a half-finished transfer. A global UVM
+  timeout (1 ms) catches any other hang.
+- **No outstanding transactions.** The monitor counts raw AW / W / B / AR / R
+  handshakes, independent of transaction rebuilding. The test waits for
+  the bus to go idle before dropping its objection, so the last responses
+  are still checked. `check_phase` then errors if any request went
+  unanswered or a response came unasked.
+
+**Regression and sign-off.** `make uvm-sweep` compiles once and runs seeds
+1..N, parsing each run's UVM report summary and functional coverage. A
+seed with no summary (crash or hang) counts as a failure. Sign-off, all
+three enforced per seed by the script:
+
+1. zero `UVM_ERROR` / `UVM_FATAL` across the sweep,
+2. 100% functional coverage (`COV_GOAL`, 100 for `axi4lite_random_test`;
+   the smoke test only exercises in-range full-word traffic, so it isn't
+   held to it),
+3. no outstanding transactions at the end of every test (a `UVM_ERROR`
+   from the monitor's `check_phase`, so it falls under 1).
+
 ## Formal results
 
 Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), none vacuous:
@@ -148,7 +185,7 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
 ## Next steps / extension points
 
 1. **UVM RAL**
-2. **Outstanding-transaction handling**
+2. **Pipelined driver/monitor: more than one request in flight, random BREADY/RREADY backpressure**
 3. **Error injection via factory override**
 4. **Implemente AWPROT/ARPROT**
 5. **Cover-point closure reporting for `formal/`**
