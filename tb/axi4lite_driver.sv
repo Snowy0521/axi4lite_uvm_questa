@@ -4,6 +4,10 @@
 // Pulls axi4lite_txn items from the sequencer and drives them onto the
 // AXI4-Lite bus via the interface's driver clocking block.
 //
+// A timeout is fatal: the transfer is left unfinished, so carrying on would
+// either drop VALID before its handshake (illegal) or run the next item
+// into the stale one, burying the real cause under follow-on errors.
+// Ending here keeps the first error in the log the real one.
 // ============================================================================
 
 class axi4lite_driver extends uvm_driver #(axi4lite_txn);
@@ -68,7 +72,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
           end
           begin : awready_timeout
             repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
-            `uvm_error("DRV_TIMEOUT", "timed out waiting for AWREADY")
+            `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for AWREADY: ", tr.convert2string()})
           end
         join_any
         disable fork;
@@ -84,7 +88,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
           end
           begin : wready_timeout
             repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
-            `uvm_error("DRV_TIMEOUT", "timed out waiting for WREADY")
+            `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for WREADY: ", tr.convert2string()})
           end
         join_any
         disable fork;
@@ -100,7 +104,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
       end
       begin : bresp_timeout
         repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
-        `uvm_error("DRV_TIMEOUT", "timed out waiting for BVALID")
+        `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for BVALID: ", tr.convert2string()})
       end
     join_any
     disable fork;
@@ -118,7 +122,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
       end
       begin : arready_timeout
         repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
-        `uvm_error("DRV_TIMEOUT", "timed out waiting for ARREADY")
+        `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for ARREADY: ", tr.convert2string()})
       end
     join_any
     disable fork;
@@ -132,7 +136,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
       end
       begin : rvalid_timeout
         repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
-        `uvm_error("DRV_TIMEOUT", "timed out waiting for RVALID")
+        `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for RVALID: ", tr.convert2string()})
       end
     join_any
     disable fork;

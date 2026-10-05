@@ -15,6 +15,10 @@ class axi4lite_base_test extends uvm_test;
 
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
+    // Backstop for any hang the per-handshake timeouts miss: a clear
+    // UVM_FATAL instead of running until the regression's wall-clock limit.
+    // The random test finishes in ~5 us.
+    uvm_top.set_timeout(1ms);
     uvm_config_db#(int unsigned)::set(this, "env.sb", "num_regs", NUM_REGS);
     env = axi4lite_env::type_id::create("env", this);
   endfunction
