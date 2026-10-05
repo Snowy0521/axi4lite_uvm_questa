@@ -19,6 +19,13 @@ class axi4lite_monitor extends uvm_monitor;
 
   uvm_analysis_port #(axi4lite_txn) ap;
 
+  // Raw handshake counts per channel, kept apart from transaction
+  // reconstruction: a B or R the DUT sends unasked never gets paired by
+  // monitor_write/monitor_read, but still shows up here. Plus the
+  // transactions actually published on ap.
+  int unsigned n_aw, n_w, n_b, n_ar, n_r;
+  int unsigned n_wr_pub, n_rd_pub;
+
   function new(string name, uvm_component parent);
     super.new(name, parent);
     ap = new("ap", this); // TLM port, can not be registered in config_db, just new it
@@ -42,8 +49,52 @@ class axi4lite_monitor extends uvm_monitor;
     fork
       monitor_write();
       monitor_read();
+      count_handshakes();
     join
   endtask
+
+  // Samples the same edges as monitor_write/monitor_read.
+  task count_handshakes();
+    forever begin
+      @(vif.mon_cb);
+      if (vif.mon_cb.awvalid && vif.mon_cb.awready) n_aw++;
+      if (vif.mon_cb.wvalid  && vif.mon_cb.wready)  n_w++;
+      if (vif.mon_cb.bvalid  && vif.mon_cb.bready)  n_b++;
+      if (vif.mon_cb.arvalid && vif.mon_cb.arready) n_ar++;
+      if (vif.mon_cb.rvalid  && vif.mon_cb.rready)  n_r++;
+    end
+  endtask
+
+  // Every accepted request answered exactly once, nothing answered unasked,
+  // and every answer published as a transaction.
+  function bit all_answered();
+    return n_aw == n_b && n_w == n_b && n_ar == n_r
+        && n_wr_pub == n_b && n_rd_pub == n_r;
+  endfunction
+
+  // Called by the test before it drops its objection, so the last
+  // responses are still observed and checked rather than cut off.
+  task wait_for_idle(int unsigned max_cycles);
+    repeat (max_cycles) begin
+      if (all_answered()) return;
+      @(vif.mon_cb);
+    end
+    if (!all_answered())
+      `uvm_error("MON_NOT_IDLE", $sformatf(
+        "bus not idle %0d cycles after the sequence finished", max_cycles))
+  endtask
+
+  // Sign-off: no transaction outstanding (or unsolicited) at end of test.
+  function void check_phase(uvm_phase phase);
+    string counts = $sformatf(
+      "AW=%0d W=%0d B=%0d AR=%0d R=%0d, published writes=%0d reads=%0d",
+      n_aw, n_w, n_b, n_ar, n_r, n_wr_pub, n_rd_pub);
+    super.check_phase(phase);
+    if (all_answered())
+      `uvm_info("MON", {"no outstanding transactions: ", counts}, UVM_LOW)
+    else
+      `uvm_error("MON_OUTSTANDING", {"unanswered or unsolicited transactions at end of test: ", counts})
+  endfunction
 
   // ------------------------------------------------------------------
   // Reconstruct a write transaction: wait for AW and W handshakes
@@ -104,6 +155,7 @@ class axi4lite_monitor extends uvm_monitor;
       tr.resp = vif.mon_cb.bresp;
 
       `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_LOW)
+      n_wr_pub++;
       ap.write(tr);
     end
   endtask
@@ -147,6 +199,7 @@ class axi4lite_monitor extends uvm_monitor;
       tr.resp  = vif.mon_cb.rresp;
 
       `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_LOW)
+      n_rd_pub++;
       ap.write(tr);
     end
   endtask

@@ -32,6 +32,10 @@ class axi4lite_base_test extends uvm_test;
     seq = axi4lite_base_seq::type_id::create("seq");
     seq.start(env.agent.sqr);
 
+    // Don't end with requests in flight: their responses would never be
+    // checked. The monitor's check_phase then confirms nothing is outstanding.
+    env.agent.mon.wait_for_idle(axi4lite_pkg::TIMEOUT_CYCLES);
+
     phase.drop_objection(this);
   endtask
 
