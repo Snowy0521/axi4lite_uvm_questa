@@ -136,6 +136,11 @@ make clean
   WSTRB (all-zero, all-one, partial), response codes. `illegal_bins` in
   the address x response cross also flag an OKAY to an out-of-range
   address or a SLVERR to an in-range one.
+- **Configuration.** The virtual interface is set once per modport, scoped
+  to `uvm_test_top.env.agent.*`; every `get` without which a component
+  can't work fatals if it finds nothing (no silent defaults), and the base
+  test errors at end of elaboration on any `config_db` setting nobody read,
+  which is what a mistyped path or field name leaves behind.
 - **Timeouts.** If a READY or response doesn't arrive within
   `TIMEOUT_CYCLES`, the driver stops the test with a `DRV_TIMEOUT` fatal
   naming the transaction, so the first error in the log is the real cause

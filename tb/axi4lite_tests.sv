@@ -19,13 +19,26 @@ class axi4lite_base_test extends uvm_test;
     // UVM_FATAL instead of running until the regression's wall-clock limit.
     // The random test finishes in ~5 us.
     uvm_top.set_timeout(1ms);
-    uvm_config_db#(int unsigned)::set(this, "env.sb", "num_regs", NUM_REGS);
+    uvm_config_db#(int unsigned)::set(this, "env.sb", "num_regs", axi4lite_pkg::NUM_REGS);
     env = axi4lite_env::type_id::create("env", this);
   endfunction
 
   function void end_of_elaboration_phase(uvm_phase phase);
+    uvm_resource_types::rsrc_q_t unused;
     super.end_of_elaboration_phase(phase);
     uvm_top.print_topology(); // print the component hierarchy to the transcript
+
+    // Every config_db set must have been read by now (all gets are in
+    // build_phase). One that wasn't is almost always a mistyped path or
+    // field name. check_config_usage only prints them as UVM_INFO, so
+    // also raise an error the regression counts.
+    unused = uvm_resource_pool::get().find_unused_resources();
+    if (unused.size() != 0) begin
+      check_config_usage();
+      `uvm_error("CFG_UNUSED", $sformatf(
+        "%0d config_db setting(s) never read -- mistyped path or field name? (listed above)",
+        unused.size()))
+    end
   endfunction
 
   task run_phase(uvm_phase phase);

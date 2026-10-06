@@ -24,8 +24,12 @@ class axi4lite_scoreboard extends uvm_component;
 
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
+    // No silent default: a fallback of 16 equals today's NUM_REGS, so a
+    // mistyped set path would go unnoticed until the register count changed,
+    // and then show up as SLVERR mismatches far from the cause.
     if (!uvm_config_db#(int unsigned)::get(this, "", "num_regs", num_regs))
-      num_regs = 16;   // default, matches the DUT's default NUM_REGS = 16
+      `uvm_fatal("NOCFG", {"num_regs not set for ", get_full_name(),
+                           " (the test sets it in build_phase)"})
   endfunction
 
   // called automatically by the monitor's analysis port on every completed txn

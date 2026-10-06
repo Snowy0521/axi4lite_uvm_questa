@@ -71,19 +71,24 @@ module tb_top;
   // UVM setup + test launch
   // ------------------------------------------------------------------
   initial begin
+    // One set per modport: config_db keys on the full type, so the
+    // .driver and .monitor handles are separate entries. Scoped to the
+    // agent rather than "*", so only its driver and monitor can see the
+    // interface; a mistyped path then leaves a set nobody reads, which
+    // the getters' NOVIF fatal and the base test's unused-config check catch.
     uvm_config_db#(
-    virtual axi4lite_if #(
-      .ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH),
-      .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
+      virtual axi4lite_if #(
+        .ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH),
+        .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
       ).driver
-    )::set(null, "*", "vif", intf);
+    )::set(null, "uvm_test_top.env.agent.*", "vif", intf);
 
-  uvm_config_db#(
-    virtual axi4lite_if #(
-      .ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH),
-      .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
+    uvm_config_db#(
+      virtual axi4lite_if #(
+        .ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH),
+        .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
       ).monitor
-    )::set(null, "*", "vif", intf);
+    )::set(null, "uvm_test_top.env.agent.*", "vif", intf);
     // +UVM_TESTNAME on the vsim command line overrides this default test name
     run_test("axi4lite_smoke_test");
   end
