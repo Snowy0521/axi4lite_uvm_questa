@@ -14,7 +14,7 @@ class axi4lite_scoreboard extends uvm_component;
 
   // shadow model of the DUT's register file -- word-addressed
   // chose associative array for large address spaces if NUM_REGS gets big
-  protected bit [axi4lite_pkg::DATA_WIDTH-1:0] shadow_regs [int unsigned]; // associative array indexed by word address
+  protected bit [DATA_WIDTH-1:0] shadow_regs [int unsigned]; // associative array indexed by word address
   protected int unsigned num_regs, num_writes, num_reads, num_errors;
 
   function new(string name, uvm_component parent);
@@ -35,7 +35,7 @@ class axi4lite_scoreboard extends uvm_component;
   // called automatically by the monitor's analysis port on every completed txn
   function void write(axi4lite_txn tr);
 
-    int unsigned word_idx = tr.addr >> axi4lite_pkg::ADDR_LSB;
+    int unsigned word_idx = tr.addr >> ADDR_LSB;
     bit          in_range = (word_idx < num_regs);
 
     `uvm_info("SB", "write() entered", UVM_HIGH)
@@ -77,15 +77,15 @@ class axi4lite_scoreboard extends uvm_component;
 
   // update the shadow model with the write data, respecting the write strobes
   protected function void update_shadow_model(int unsigned word_idx, axi4lite_txn tr);
-    bit [axi4lite_pkg::DATA_WIDTH-1:0] cur = shadow_regs.exists(word_idx) ? shadow_regs[word_idx] : '0;
-    for (int b = 0; b < axi4lite_pkg::STRB_WIDTH; b++)
+    bit [DATA_WIDTH-1:0] cur = shadow_regs.exists(word_idx) ? shadow_regs[word_idx] : '0;
+    for (int b = 0; b < STRB_WIDTH; b++)
       if (tr.wstrb[b]) cur[b*8 +: 8] = tr.wdata[b*8 +: 8];
     shadow_regs[word_idx] = cur;
   endfunction
 
   // compare the read data against the shadow model, report an error if it doesn't match
   protected function void check_read_data(int unsigned word_idx, axi4lite_txn tr);
-    bit [axi4lite_pkg::DATA_WIDTH-1:0] expected = shadow_regs.exists(word_idx) ? shadow_regs[word_idx] : '0;
+    bit [DATA_WIDTH-1:0] expected = shadow_regs.exists(word_idx) ? shadow_regs[word_idx] : '0;
     if (tr.rdata !== expected) begin
       num_errors++;
       `uvm_error("SB", $sformatf(

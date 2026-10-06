@@ -37,7 +37,7 @@ class axi4lite_corner_driver extends axi4lite_driver;
   endfunction
 
   virtual task drive_write(axi4lite_txn tr);
-    bit [axi4lite_pkg::ADDR_WIDTH-1:0] addr = tr.addr;
+    bit [ADDR_WIDTH-1:0] addr = tr.addr;
     int unsigned skew = $urandom_range(MAX_SKEW, 0);
     aw_delay = 0;
     w_delay  = 0;
@@ -61,7 +61,7 @@ class axi4lite_corner_driver extends axi4lite_driver;
   endtask
 
   virtual task drive_read(axi4lite_txn tr);
-    bit [axi4lite_pkg::ADDR_WIDTH-1:0] addr = tr.addr;
+    bit [ADDR_WIDTH-1:0] addr = tr.addr;
     misalign(tr);
     super.drive_read(tr);
     tr.addr = addr;
@@ -70,7 +70,7 @@ class axi4lite_corner_driver extends axi4lite_driver;
   // Half the time, set the byte-select bits below the word address.
   protected function void misalign(axi4lite_txn tr);
     if ($urandom_range(1, 0)) begin
-      tr.addr[axi4lite_pkg::ADDR_LSB-1:0] = $urandom_range(axi4lite_pkg::STRB_WIDTH - 1, 1);
+      tr.addr[ADDR_LSB-1:0] = $urandom_range(STRB_WIDTH - 1, 1);
       n_unaligned++;
     end
   endfunction

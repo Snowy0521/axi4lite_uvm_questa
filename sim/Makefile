@@ -39,9 +39,10 @@
 TEST      ?= axi4lite_smoke_test
 SEED      ?= 42
 N         ?= 20
-# uvm-sweep fails a seed whose functional coverage is below COV_GOAL (%).
-# 100 for the random and corner-case tests (sign-off); the smoke test
-# only reaches part of the model by design, so it isn't held to it.
+# uvm-sweep fails if the functional coverage merged over its passing seeds
+# is below COV_GOAL (%). 100 for the random and corner-case tests
+# (sign-off); the smoke test only reaches part of the model by design, so
+# it isn't held to it. One seed isn't expected to close the model alone.
 COV_GOAL  ?= $(if $(filter axi4lite_random_test axi4lite_corner_test,$(TEST)),100,0)
 RTL_DIR   := ../rtl
 TB_DIR    := ../tb
@@ -125,35 +126,62 @@ uvm-build: lib
 	$(VOPT) +acc tb_top -o tb_top_opt
 
 uvm: uvm-build
-	$(VSIM) -c tb_top_opt +UVM_TESTNAME=$(TEST) +ntb_random_seed=$(SEED) \
+	$(VSIM) -c tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
 	     +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish exit -do "run -all; quit -f"
 
+# Each seed saves its coverage to $(UVM_COV_DIR)/seed_<n>.ucdb (same
+# -onfinish stop / coverage save pattern as formal-coverage); the passing
+# seeds are merged with vcover and the merged covergroup coverage is held to
+# COV_GOAL. merged_cvg.txt is kept for finding the bins still at zero.
+UVM_COV_DIR := uvm_cov_ucdb
+
 uvm-sweep: uvm-build
-	@fail=0; \
+	@rm -rf $(UVM_COV_DIR); mkdir -p $(UVM_COV_DIR); \
+	fail=0; \
 	for s in $$(seq 1 $(N)); do \
-	  out=$$($(VSIM) -c tb_top_opt +UVM_TESTNAME=$(TEST) +ntb_random_seed=$$s \
-	         +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish exit -do "run -all; quit -f" 2>&1); \
+	  out=$$($(VSIM) -c tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $$s \
+	         +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish stop \
+	         -do "run -all; coverage save $(UVM_COV_DIR)/seed_$$s.ucdb; quit -f" 2>&1); \
+	  sfail=0; \
 	  errs=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_ERROR :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
 	  fatals=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_FATAL :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
 	  cov=$$(echo "$$out" | sed -n 's/.*Overall coverage for [^:]*: *\([0-9.]*\)%.*/\1/p' | tail -1); \
 	  if [ -z "$$errs" ] || [ -z "$$fatals" ]; then \
 	    echo "seed $$s: FAILED (no UVM report summary found -- crashed or hung?)"; \
 	    echo "$$out" | tail -30 | sed 's/^/    /'; \
-	    fail=1; \
+	    sfail=1; \
 	  elif [ "$$errs" -gt 0 ] || [ "$$fatals" -gt 0 ]; then \
 	    echo "seed $$s: FAILED (UVM_ERROR=$$errs UVM_FATAL=$$fatals)"; \
-	    fail=1; \
-	  elif ! awk -v c="$$cov" -v g="$(COV_GOAL)" 'BEGIN { exit !(c != "" && c + 0 >= g + 0) }'; then \
-	    echo "seed $$s: FAILED (coverage $${cov:-not reported}% < COV_GOAL=$(COV_GOAL)%)"; \
-	    fail=1; \
+	    sfail=1; \
 	  else \
-	    echo "seed $$s: OK (coverage $$cov%)"; \
+	    echo "seed $$s: OK (coverage this seed $${cov:-?}%)"; \
 	  fi; \
+	  if [ "$$sfail" -ne 0 ]; then fail=1; rm -f $(UVM_COV_DIR)/seed_$$s.ucdb; fi; \
 	done; \
-	if [ "$$fail" -eq 0 ]; then \
-	  echo "ALL $(N) SEEDS PASSED (TEST=$(TEST), COV_GOAL=$(COV_GOAL)%)"; \
+	if ls $(UVM_COV_DIR)/seed_*.ucdb > /dev/null 2>&1; then \
+	  $(VCOVER) merge $(UVM_COV_DIR)/merged.ucdb $(UVM_COV_DIR)/seed_*.ucdb \
+	       > $(UVM_COV_DIR)/merge.log 2>&1; \
+	  $(VCOVER) report -cvg -details $(UVM_COV_DIR)/merged.ucdb \
+	       > $(UVM_COV_DIR)/merged_cvg.txt 2>&1; \
+	  mcov=$$(sed -n 's/.*TOTAL COVERGROUP COVERAGE: *\([0-9.]*\)%.*/\1/p' \
+	          $(UVM_COV_DIR)/merged_cvg.txt | tail -1); \
+	  if [ -z "$$mcov" ]; then \
+	    echo "MERGED COVERAGE: not found in $(UVM_COV_DIR)/merged_cvg.txt (see merge.log)"; \
+	    fail=1; \
+	  elif awk -v c="$$mcov" -v g="$(COV_GOAL)" 'BEGIN { exit !(c + 0 >= g + 0) }'; then \
+	    echo "MERGED COVERAGE: $$mcov% (COV_GOAL=$(COV_GOAL)%)"; \
+	  else \
+	    echo "MERGED COVERAGE: $$mcov% < COV_GOAL=$(COV_GOAL)% -- bins at zero in $(UVM_COV_DIR)/merged_cvg.txt"; \
+	    fail=1; \
+	  fi; \
 	else \
-	  echo "SOME SEEDS FAILED (TEST=$(TEST))"; \
+	  echo "MERGED COVERAGE: no passing seed to merge"; \
+	  fail=1; \
+	fi; \
+	if [ "$$fail" -eq 0 ]; then \
+	  echo "ALL $(N) SEEDS PASSED (TEST=$(TEST), merged coverage >= $(COV_GOAL)%)"; \
+	else \
+	  echo "SWEEP FAILED (TEST=$(TEST))"; \
 	  exit 1; \
 	fi
 
@@ -256,7 +284,7 @@ clean:
 # vsim: console log, waveform databases, UVM transaction-recording log
 	rm -rf transcript *.wlf *.vcd *.fst tr_db.log vsim.dbg vish_stacktrace.vstf
 # vcover / coverage
-	rm -rf $(FORMAL_COV_DIR) *.ucdb
+	rm -rf $(FORMAL_COV_DIR) $(UVM_COV_DIR) *.ucdb
 # qverify (formal-verify): work dirs, reports, replayed command log
 	rm -rf .qverify propcheck.db
 	rm -rf formal_design.rpt formal_property.rpt formal_settings.rpt \

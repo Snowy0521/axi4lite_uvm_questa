@@ -1,8 +1,11 @@
 // ============================================================================
 // axi4lite_coverage_collector.sv
 //
-// Coverage collector for AXI4-Lite interface transactions. 
-// Collects coverage on the address, data, and response fields of both read and write transactions. 
+// Coverage collector for AXI4-Lite interface transactions, sampled on every
+// completed transaction (after its response) from the monitor. The model is
+// closed on the coverage merged across a uvm-sweep, not per seed: one seed
+// of NUM_TXNS writes can't be expected to hit every register x op and every
+// data/strobe pattern.
 // ============================================================================
 
 
@@ -12,9 +15,9 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
 
     covergroup cg_axi4lite with function sample(
 	   axi4lite_op_e				op,
-	   logic [axi4lite_pkg::ADDR_WIDTH-1:0] 	addr,
-	   logic [axi4lite_pkg::DATA_WIDTH-1:0]		wdata,
-	   logic [axi4lite_pkg::STRB_WIDTH-1:0]		wstrb,
+	   logic [ADDR_WIDTH-1:0] 	addr,
+	   logic [DATA_WIDTH-1:0]		wdata,
+	   logic [STRB_WIDTH-1:0]		wstrb,
 	   logic [1:0]					resp); 
 
         option.per_instance = 1; // Each instance of the coverage collector will have its own coverage group
@@ -24,48 +27,58 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
             bins read = {AXI_READ};
         }
 
+        // Address region, for the response cross: in range (must be OKAY)
+        // or not (must be SLVERR). Byte addresses, so unaligned ones in the
+        // last word (axi4lite_corner_driver drives those) count as in range.
         cp_addr: coverpoint addr {
-            // every byte address of the register file, including unaligned ones
-            // in the last word (axi4lite_corner_driver drives those)
-            bins in_range = {[0 : axi4lite_pkg::NUM_REGS*axi4lite_pkg::STRB_WIDTH - 1]};
-            bins out_of_range = {[axi4lite_pkg::NUM_REGS*axi4lite_pkg::STRB_WIDTH : axi4lite_pkg::MAX_ADDR]};
+            bins in_range     = {[0 : NUM_REGS*STRB_WIDTH - 1]};
+            bins out_of_range = {[NUM_REGS*STRB_WIDTH : MAX_ADDR]};
         }
 
-        // The two words either side of the range edge, by word index (so
-        // unaligned addresses in them count too). A separate coverpoint
-        // rather than extra cp_addr bins: those would join cp_addr's
-        // crosses and need their own illegal_bins.
-        cp_addr_edge: coverpoint addr[axi4lite_pkg::ADDR_WIDTH-1:axi4lite_pkg::ADDR_LSB] {
-            bins last_reg  = {axi4lite_pkg::NUM_REGS - 1};
-            bins first_oor = {axi4lite_pkg::NUM_REGS};
+        // Word index: every register on its own (one in_range bin is closed
+        // by touching register 0 once), the first word past the range,
+        // where an off-by-one in the range check shows, and the rest.
+        cp_word: coverpoint addr[ADDR_WIDTH-1:ADDR_LSB] {
+            bins regs[]    = {[0 : NUM_REGS - 1]};
+            bins first_oor = {NUM_REGS};
+            bins rest_oor  = {[NUM_REGS + 1 : MAX_WORD]};
         }
 
-        // Binned on the top two bits: same ranges as [0, 2^(W-2)),
-        // [2^(W-2), 2^(W-1)), [2^(W-1), 2^W), but 2**(W-1) overflows a
-        // 32-bit int (W=32: bin 'high' was silently dropped; W=64: all
-        // three bins covered every value).
-        cp_wdata: coverpoint wdata[axi4lite_pkg::DATA_WIDTH-1 -: 2] iff (op == AXI_WRITE) {
-            bins low  = {2'b00};
-            bins mid  = {2'b01};
-            bins high = {[2'b10 : 2'b11]};
+        // Bit patterns, not value ranges: together they drive every data
+        // bit both ways, which is what finds a stuck or swapped register bit.
+        cp_wdata: coverpoint wdata iff (op == AXI_WRITE) {
+            bins zeros = {0};
+            bins ones  = {DATA_ONES};
+            bins alt_a = {DATA_ALT_A};
+            bins alt_5 = {DATA_ALT_5};
         }
 
+        // Each byte lane on its own and each half word, where a lane
+        // mix-up in the strobe merge shows; plus nothing and everything.
         cp_wstrb: coverpoint wstrb iff (op == AXI_WRITE) {
-            bins all_zero = {'0};
-            bins all_one =  {'1};
-            bins others = default;
+            bins none    = {0};
+            bins full    = {STRB_FULL};
+            bins lane[]  = {[1 : STRB_FULL]} with ($countones(item) == 1);
+            bins lo_half = {STRB_LO_HALF};
+            bins hi_half = {STRB_HI_HALF};
         }
 
+        // This DUT only answers OKAY or SLVERR; anything else is an error
+        // here, not a silently ignored value.
         cp_resp: coverpoint resp {
-            bins ok = {AXI_RESP_OKAY};
+            bins ok     = {AXI_RESP_OKAY};
             bins slverr = {AXI_RESP_SLVERR};
+            illegal_bins exokay = {AXI_RESP_EXOKAY};
+            illegal_bins decerr = {AXI_RESP_DECERR};
         }
 
-        // cross coverage between coverpoints
-        cx_op_addr: 	cross cp_op, cp_addr;
+        // Every register both written and read, and out-of-range writes as
+        // well as reads. Without it, reads alone can close cp_word: an
+        // out-of-range write aliased onto a register could then go untested.
+        cx_op_word: cross cp_op, cp_word;
 
-        // An in-range access must never get SLVERR, an out-of-range access
-        // must never get OKAY -- illegal_bins inside a cross flags. 
+        // Each region seen with its response. An in-range access must never
+        // get SLVERR, an out-of-range one never OKAY -- illegal_bins flag it.
         cx_addr_resp: cross cp_addr, cp_resp {
             illegal_bins invalid_out_of_range_ok = binsof(cp_addr.out_of_range) && binsof(cp_resp.ok);
             illegal_bins invalid_in_range_err    = binsof(cp_addr.in_range) && binsof(cp_resp.slverr);
@@ -85,7 +98,8 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
     function void report_phase(uvm_phase phase);
     	super.report_phase(phase);
     	`uvm_info("COVERAGE",
-        	$sformatf("Overall coverage for %s: %0.2f%%", get_full_name(), cg_axi4lite.get_inst_coverage()),
+        	$sformatf("Overall coverage for %s: %0.2f%% (this seed; sign-off is on the merged sweep)",
+        	          get_full_name(), cg_axi4lite.get_inst_coverage()),
         	UVM_LOW)
     endfunction    
 endclass

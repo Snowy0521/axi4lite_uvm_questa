@@ -25,7 +25,7 @@ axi4lite_uvm/
 │   ├── axi4lite_monitor.sv         -- passively reconstructs transactions, broadcasts via analysis port; end-of-test outstanding check
 │   ├── axi4lite_agent.sv           -- driver + sequencer + monitor container (active/passive capable)
 │   ├── axi4lite_scoreboard.sv      -- shadow-register-model checker
-│   ├── axi4lite_coverage_collector.sv -- functional coverage (op x address-region, wstrb, resp)
+│   ├── axi4lite_coverage_collector.sv -- functional coverage (per register x op, range edge, data/strobe patterns, resp)
 │   ├── axi4lite_env.sv             -- top-level environment (agent + scoreboard + coverage)
 │   ├── axi4lite_tests.sv           -- base_test, smoke_test, random_test, corner_test
 │   ├── axi4lite_pkg.sv             -- package bundling all `include`d class files
@@ -114,11 +114,16 @@ make clean
 ## UVM testbench
 
 - **Stimulus.** `axi4lite_smoke_test`: `NUM_SMOKE_TXNS` full-word writes,
-  then reads them back. `axi4lite_random_test`: `NUM_TXNS` write/read-back
-  pairs. The address `dist` is on the word index, so the alignment
-  constraint can't skew it: 70% registers below the last, 10% the last
-  register, 10% the first word past the range, 10% the rest of the space
-  (SLVERR path). Random WSTRB including all-zero and partial strobes.
+  then reads them back. `axi4lite_random_test`: `NUM_TXNS` writes, each
+  read back, plus a read of another register 30% of the time (read-back
+  alone would overwrite a register before ever reading a corruption of
+  it, e.g. an out-of-range write aliased onto it). The address `dist` is
+  on the word index, so the alignment constraint can't skew it: 70%
+  registers below the last, 10% the last register, 10% the first word
+  past the range, 10% the rest of the space (SLVERR path). Data and
+  strobe are biased toward the coverage model's patterns: 20% data from
+  all-zero / all-one / 0xAA.. / 0x55.., strobes 10% none, 20% full, 20%
+  one byte lane, 10% a half word, 40% any other partial.
 - **Corner cases by factory override.** `axi4lite_corner_test` is the
   random test with one extra line in `build_phase`: a type override from
   `axi4lite_driver` to `axi4lite_corner_driver`; env and agent are untouched.
@@ -134,11 +139,15 @@ make clean
   in-range OKAY write with WSTRB byte merging; every in-range read is
   compared against it. In-range accesses must return OKAY, out-of-range
   ones SLVERR.
-- **Coverage.** Op x address region (in / out of range), the two words
-  either side of the range edge (`cp_addr_edge`), WDATA ranges,
-  WSTRB (all-zero, all-one, partial), response codes. `illegal_bins` in
-  the address x response cross also flag an OKAY to an out-of-range
-  address or a SLVERR to an in-range one.
+- **Coverage.** Sampled on every completed transaction. Every register
+  on its own plus the first out-of-range word and the rest
+  (`cp_word`), crossed with the operation so each register is both
+  written and read and out-of-range writes happen, not only reads.
+  Data bit patterns (all-zero, all-one, alternating both ways), strobes
+  (none, full, each byte lane, each half word), both only on writes.
+  Responses, with EXOKAY / DECERR as `illegal_bins`. `illegal_bins` in
+  the address-region x response cross also flag an OKAY to an
+  out-of-range address or a SLVERR to an in-range one.
 - **Configuration.** The virtual interface is set once per modport, scoped
   to `uvm_test_top.env.agent.*`; every `get` without which a component
   can't work fatals if it finds nothing (no silent defaults), and the base
@@ -156,16 +165,40 @@ make clean
   unanswered or a response came unasked.
 
 **Regression and sign-off.** `make uvm-sweep` compiles once and runs seeds
-1..N, parsing each run's UVM report summary and functional coverage. A
-seed with no summary (crash or hang) counts as a failure. Sign-off, all
-three enforced per seed by the script:
+1..N, parsing each run's UVM report summary. A seed with no summary
+(crash or hang) counts as a failure. Each seed saves its coverage to a
+UCDB; the passing seeds are merged with `vcover` (`sim/uvm_cov_ucdb/`,
+`merged_cvg.txt` lists the bins still at zero). Sign-off, all three
+enforced by the script:
 
-1. zero `UVM_ERROR` / `UVM_FATAL` across the sweep,
-2. 100% functional coverage (`COV_GOAL`, 100 for `axi4lite_random_test`
-   and `axi4lite_corner_test`; the smoke test only exercises in-range
-   full-word traffic, so it isn't held to it),
+1. zero `UVM_ERROR` / `UVM_FATAL` in every seed,
+2. 100% functional coverage **merged over the sweep** (`COV_GOAL`, 100
+   for `axi4lite_random_test` and `axi4lite_corner_test`; the smoke test
+   only exercises in-range full-word traffic, so it isn't held to it).
+   One seed of `NUM_TXNS` writes isn't expected to hit every register x
+   op and every pattern; the regression is,
 3. no outstanding transactions at the end of every test (a `UVM_ERROR`
    from the monitor's `check_phase`, so it falls under 1).
+
+## UVM results
+
+QuestaSim 2024.3, `make uvm-sweep N=20` -- seeds 1..20 each, zero
+`UVM_ERROR` / `UVM_FATAL`, no outstanding transactions:
+
+| Test                   | Configuration | Seeds         | Merged coverage |
+|------------------------|---------------|---------------|-----------------|
+| `axi4lite_random_test` | 32-bit        | 20 / 20 pass  | 100%            |
+| `axi4lite_random_test` | 64-bit        | 20 / 20 pass  | 100%            |
+| `axi4lite_corner_test` | 32-bit        | 20 / 20 pass  | 100%            |
+
+- **Seeds really differ.** Seeds are passed with Questa's `-sv_seed`.
+  Earlier sweeps used `+ntb_random_seed`, a VCS option Questa ignores, so
+  every seed reran the same default one; it showed up once coverage was
+  merged: the merged result equalled every per-seed result, and every bin
+  count was a multiple of 20. Results above are after the fix.
+- **Sign-off is on the merge.** A single seed isn't required to close the
+  model; the merged sweep is. The per-seed figure printed by `uvm-sweep` is
+  for information only.
 
 ## Formal results
 

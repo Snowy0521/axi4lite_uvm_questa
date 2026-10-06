@@ -19,7 +19,7 @@ class axi4lite_base_test extends uvm_test;
     // UVM_FATAL instead of running until the regression's wall-clock limit.
     // The random test finishes in ~5 us.
     uvm_top.set_timeout(1ms);
-    uvm_config_db#(int unsigned)::set(this, "env.sb", "num_regs", axi4lite_pkg::NUM_REGS);
+    uvm_config_db#(int unsigned)::set(this, "env.sb", "num_regs", NUM_REGS);
     env = axi4lite_env::type_id::create("env", this);
   endfunction
 
@@ -51,7 +51,7 @@ class axi4lite_base_test extends uvm_test;
 
     // Don't end with requests in flight: their responses would never be
     // checked. The monitor's check_phase then confirms nothing is outstanding.
-    env.agent.mon.wait_for_idle(axi4lite_pkg::TIMEOUT_CYCLES);
+    env.agent.mon.wait_for_idle(TIMEOUT_CYCLES);
 
     phase.drop_objection(this);
   endtask

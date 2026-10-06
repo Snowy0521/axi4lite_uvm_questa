@@ -14,8 +14,8 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   `uvm_component_utils(axi4lite_driver)
 
   virtual axi4lite_if #(
-    .ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH),
-    .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
+    .ADDR_WIDTH(ADDR_WIDTH),
+    .DATA_WIDTH(DATA_WIDTH)
   ).driver vif;
 
   function new(string name, uvm_component parent);
@@ -25,8 +25,8 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
     if (!uvm_config_db#(virtual axi4lite_if #(
-  	  .ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH),
-    	  .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
+  	  .ADDR_WIDTH(ADDR_WIDTH),
+    	  .DATA_WIDTH(DATA_WIDTH)
         ).driver)::get(this, "", "vif", vif))
       `uvm_fatal("NOVIF", "virtual interface (driver modport) not found in config_db")
   endfunction
@@ -81,7 +81,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
         do @(vif.drv_cb); while (!vif.drv_cb.awready);
       end
       begin : awready_timeout
-        repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
+        repeat (TIMEOUT_CYCLES) @(vif.drv_cb);
         `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for AWREADY: ", tr.convert2string()})
       end
     join_any
@@ -98,7 +98,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
         do @(vif.drv_cb); while (!vif.drv_cb.wready);
       end
       begin : wready_timeout
-        repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
+        repeat (TIMEOUT_CYCLES) @(vif.drv_cb);
         `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for WREADY: ", tr.convert2string()})
       end
     join_any
@@ -113,7 +113,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
         tr.resp = vif.drv_cb.bresp; // update transaction object using "="
       end
       begin : bresp_timeout
-        repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
+        repeat (TIMEOUT_CYCLES) @(vif.drv_cb);
         `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for BVALID: ", tr.convert2string()})
       end
     join_any
@@ -131,7 +131,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
         do @(vif.drv_cb); while (!vif.drv_cb.arready);
       end
       begin : arready_timeout
-        repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
+        repeat (TIMEOUT_CYCLES) @(vif.drv_cb);
         `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for ARREADY: ", tr.convert2string()})
       end
     join_any
@@ -145,7 +145,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
         tr.resp  = vif.drv_cb.rresp;
       end
       begin : rvalid_timeout
-        repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
+        repeat (TIMEOUT_CYCLES) @(vif.drv_cb);
         `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for RVALID: ", tr.convert2string()})
       end
     join_any

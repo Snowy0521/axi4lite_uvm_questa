@@ -7,7 +7,7 @@
 #
 # Usage:
 #   cd sim && make uvm-build
-#   vsim -do wave_uvm.do tb_top_opt +UVM_TESTNAME=axi4lite_random_test +ntb_random_seed=42 +UVM_VERBOSITY=UVM_LOW
+#   vsim -do wave_uvm.do tb_top_opt +UVM_TESTNAME=axi4lite_random_test -sv_seed 42 +UVM_VERBOSITY=UVM_LOW
 #
 # Run this by hand from sim/ (so ./questa_work resolves), in a shell with a
 # working $DISPLAY or in the Questa Transcript -- not via a make target.

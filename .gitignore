@@ -47,6 +47,7 @@ sim/qverify_cmds.tcl
 
 # Coverage (make formal-coverage -> vsim `coverage save` + vcover merge)
 sim/formal_cov_ucdb/
+sim/uvm_cov_ucdb/
 *.ucdb
 
 # Questa Visualizer -- the GUI debug environment behind both vsim's wave

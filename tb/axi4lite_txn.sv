@@ -11,17 +11,17 @@ typedef enum bit { AXI_WRITE, AXI_READ } axi4lite_op_e;
 class axi4lite_txn extends uvm_sequence_item;
 
   rand axi4lite_op_e                               op;
-  rand bit [axi4lite_pkg::ADDR_WIDTH-1:0]          addr;     // matches ADDR_WIDTH on the DUT/interface
-  rand bit [axi4lite_pkg::DATA_WIDTH-1:0]          wdata;    // valid only for op == AXI_WRITE
-  rand bit [axi4lite_pkg::STRB_WIDTH-1:0]          wstrb;    // valid only for op == AXI_WRITE
-       bit [axi4lite_pkg::DATA_WIDTH-1:0]          rdata;    // filled in by the monitor/driver on a read
+  rand bit [ADDR_WIDTH-1:0]          addr;     // matches ADDR_WIDTH on the DUT/interface
+  rand bit [DATA_WIDTH-1:0]          wdata;    // valid only for op == AXI_WRITE
+  rand bit [STRB_WIDTH-1:0]          wstrb;    // valid only for op == AXI_WRITE
+       bit [DATA_WIDTH-1:0]          rdata;    // filled in by the monitor/driver on a read
        bit [1:0]                                   resp;     // BRESP/RRESP as observed
 
   // --------------------------------------------------------------------
   // Constraints
   // --------------------------------------------------------------------
   constraint c_addr_align {
-    addr % axi4lite_pkg::STRB_WIDTH == 0;               
+    addr % STRB_WIDTH == 0;               
   }
 
   constraint c_wstrb_default {

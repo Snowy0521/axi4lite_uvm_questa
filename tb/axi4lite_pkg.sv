@@ -21,6 +21,19 @@ package axi4lite_pkg;
   parameter int unsigned MAX_ADDR       = 2**ADDR_WIDTH-1;
   parameter int unsigned TIMEOUT_CYCLES = 20;
   parameter int unsigned NUM_SMOKE_TXNS  = 4;    // number of transactions in the smoke test
+  parameter int unsigned MAX_WORD       = MAX_ADDR >> ADDR_LSB;   // last word index in the address space
+
+  // Bit patterns the coverage model asks for and the random sequence biases
+  // toward: every data bit both 0 and 1 (all-zero/all-one and the two
+  // alternating patterns), and the strobe shapes a byte-lane bug shows in.
+  // Sized constants rather than '1 in bins / constraints: an unsized '1 in
+  // a self-determined spot can mean a 1-bit 1, i.e. value 1, not all ones.
+  parameter bit [DATA_WIDTH-1:0] DATA_ONES    = '1;
+  parameter bit [DATA_WIDTH-1:0] DATA_ALT_A   = {DATA_WIDTH/2{2'b10}};   // 0xAAAA...
+  parameter bit [DATA_WIDTH-1:0] DATA_ALT_5   = {DATA_WIDTH/2{2'b01}};   // 0x5555...
+  parameter bit [STRB_WIDTH-1:0] STRB_FULL    = '1;
+  parameter bit [STRB_WIDTH-1:0] STRB_LO_HALF = STRB_FULL >> (STRB_WIDTH/2);
+  parameter bit [STRB_WIDTH-1:0] STRB_HI_HALF = STRB_FULL ^ STRB_LO_HALF;
 
 
   import axi4lite_types_pkg::*;
