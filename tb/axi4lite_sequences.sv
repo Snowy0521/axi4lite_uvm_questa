@@ -125,9 +125,18 @@ class axi4lite_random_seq extends axi4lite_base_seq;
       start_item(wr);
       if (!wr.randomize() with {
         op   == AXI_WRITE;
-        addr dist {
-          [0 : (NUM_REGS-1)*STRB_WIDTH]      :/ 90,   // in-range, word-aligned
-          [NUM_REGS*STRB_WIDTH : MAX_ADDR]   :/ 10    // out-of-range -> SLVERR path
+        // On the word index, not the byte address: c_addr_align would
+        // otherwise drop a different fraction of each group and the split
+        // would not be what the weights say (it would be badly skewed by
+        // an all-aligned boundary group). The two words either side of
+        // the range edge get their own weight -- that's where an
+        // off-by-one in the range check shows -- 10% each, so every seed
+        // hits them (miss chance 0.9^NUM_TXNS) and cp_addr_edge closes.
+        addr[ADDR_WIDTH-1:ADDR_LSB] dist {
+          [0 : NUM_REGS-2]                   :/ 70,   // registers below the last
+          NUM_REGS-1                         := 10,   // last register: OKAY
+          NUM_REGS                           := 10,   // first word past it: SLVERR
+          [NUM_REGS+1 : MAX_ADDR >> ADDR_LSB] :/ 10   // rest of the space: SLVERR
         };
         // Weighted so cp_wstrb's all-zero / all-one bins are hit at 64-bit
         // too: uniform gives each only 1/2^STRB_WIDTH (1/256 at 64-bit).

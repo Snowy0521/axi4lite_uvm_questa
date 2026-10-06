@@ -31,6 +31,15 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
             bins out_of_range = {[axi4lite_pkg::NUM_REGS*axi4lite_pkg::STRB_WIDTH : axi4lite_pkg::MAX_ADDR]};
         }
 
+        // The two words either side of the range edge, by word index (so
+        // unaligned addresses in them count too). A separate coverpoint
+        // rather than extra cp_addr bins: those would join cp_addr's
+        // crosses and need their own illegal_bins.
+        cp_addr_edge: coverpoint addr[axi4lite_pkg::ADDR_WIDTH-1:axi4lite_pkg::ADDR_LSB] {
+            bins last_reg  = {axi4lite_pkg::NUM_REGS - 1};
+            bins first_oor = {axi4lite_pkg::NUM_REGS};
+        }
+
         // Binned on the top two bits: same ranges as [0, 2^(W-2)),
         // [2^(W-2), 2^(W-1)), [2^(W-1), 2^W), but 2**(W-1) overflows a
         // 32-bit int (W=32: bin 'high' was silently dropped; W=64: all

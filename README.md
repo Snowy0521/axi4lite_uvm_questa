@@ -115,8 +115,10 @@ make clean
 
 - **Stimulus.** `axi4lite_smoke_test`: `NUM_SMOKE_TXNS` full-word writes,
   then reads them back. `axi4lite_random_test`: `NUM_TXNS` write/read-back
-  pairs, address 90% in range / 10% out of range (SLVERR path), random
-  WSTRB including all-zero and partial strobes.
+  pairs. The address `dist` is on the word index, so the alignment
+  constraint can't skew it: 70% registers below the last, 10% the last
+  register, 10% the first word past the range, 10% the rest of the space
+  (SLVERR path). Random WSTRB including all-zero and partial strobes.
 - **Corner cases by factory override.** `axi4lite_corner_test` is the
   random test with one extra line in `build_phase`: a type override from
   `axi4lite_driver` to `axi4lite_corner_driver`; env and agent are untouched.
@@ -132,7 +134,8 @@ make clean
   in-range OKAY write with WSTRB byte merging; every in-range read is
   compared against it. In-range accesses must return OKAY, out-of-range
   ones SLVERR.
-- **Coverage.** Op x address region (in / out of range), WDATA ranges,
+- **Coverage.** Op x address region (in / out of range), the two words
+  either side of the range edge (`cp_addr_edge`), WDATA ranges,
   WSTRB (all-zero, all-one, partial), response codes. `illegal_bins` in
   the address x response cross also flag an OKAY to an out-of-range
   address or a SLVERR to an in-range one.

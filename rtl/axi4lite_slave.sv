@@ -107,7 +107,7 @@ module axi4lite_slave
       end
 
       // fire the actual write once both halves have arrived
-      if (aw_hs_done && w_hs_done && !bvalid) begin // cycle N+1
+      if (aw_hs_done && w_hs_done && !bvalid) begin // cycle N+1 
         automatic int unsigned word_idx = awaddr_latched[ADDR_WIDTH-1: ADDR_LSB];
         if (word_idx < NUM_REGS) begin
           for (int b = 0; b < DATA_WIDTH/8; b++) begin
