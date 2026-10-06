@@ -25,7 +25,9 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
         }
 
         cp_addr: coverpoint addr {
-            bins in_range = {[0 : (axi4lite_pkg::NUM_REGS-1)*axi4lite_pkg::STRB_WIDTH]}; // valid address range for the DUT
+            // every byte address of the register file, including unaligned ones
+            // in the last word (axi4lite_corner_driver drives those)
+            bins in_range = {[0 : axi4lite_pkg::NUM_REGS*axi4lite_pkg::STRB_WIDTH - 1]};
             bins out_of_range = {[axi4lite_pkg::NUM_REGS*axi4lite_pkg::STRB_WIDTH : axi4lite_pkg::MAX_ADDR]};
         }
 

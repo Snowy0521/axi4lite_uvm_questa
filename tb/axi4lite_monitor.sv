@@ -154,7 +154,7 @@ class axi4lite_monitor extends uvm_monitor;
       disable fork;
       tr.resp = vif.mon_cb.bresp;
 
-      `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_LOW)
+      `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_HIGH)
       n_wr_pub++;
       ap.write(tr);
     end
@@ -198,7 +198,7 @@ class axi4lite_monitor extends uvm_monitor;
       tr.rdata = vif.mon_cb.rdata;
       tr.resp  = vif.mon_cb.rresp;
 
-      `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_LOW)
+      `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_HIGH)
       n_rd_pub++;
       ap.write(tr);
     end

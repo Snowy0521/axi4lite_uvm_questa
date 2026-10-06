@@ -80,3 +80,28 @@ class axi4lite_random_test extends axi4lite_base_test;
   endfunction
   
 endclass
+
+// --------------------------------------------------------------------------
+// Corner-case test: the random test's traffic, driven by
+// axi4lite_corner_driver (AW/W skew, unaligned addresses -- legal stimulus
+// the base driver and sequences can't produce, so a pass is the expected
+// result: the DUT handles it per spec). The factory
+// override is the only change -- env and agent still call
+// axi4lite_driver::type_id::create. It goes before super.build_phase by
+// habit; the driver itself is only created later, in the agent's
+// build_phase (build runs top-down). print_topology in
+// end_of_elaboration_phase shows axi4lite_corner_driver as env.agent.drv.
+// --------------------------------------------------------------------------
+class axi4lite_corner_test extends axi4lite_random_test;
+  `uvm_component_utils(axi4lite_corner_test)
+
+  function new(string name, uvm_component parent);
+    super.new(name, parent);
+  endfunction
+
+  function void build_phase(uvm_phase phase);
+    set_type_override_by_type(axi4lite_driver::get_type(), axi4lite_corner_driver::get_type());
+    super.build_phase(phase);
+  endfunction
+
+endclass

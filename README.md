@@ -20,13 +20,14 @@ axi4lite_uvm/
 │   ├── axi4lite_txn.sv             -- transaction (uvm_sequence_item)
 │   ├── axi4lite_sequencer.sv       -- uvm_sequencer typedef
 │   ├── axi4lite_sequences.sv       -- directed write/read seqs + randomized traffic seq
-│   ├── axi4lite_driver.sv          -- drives transactions onto the bus (AW/W concurrent, timeout-protected)
+│   ├── axi4lite_driver.sv          -- drives transactions onto the bus (AW/W concurrent, timeout-protected, virtual per-channel hooks)
+│   ├── axi4lite_corner_driver.sv      -- factory-override driver: AW/W skew in either order, unaligned addresses
 │   ├── axi4lite_monitor.sv         -- passively reconstructs transactions, broadcasts via analysis port; end-of-test outstanding check
 │   ├── axi4lite_agent.sv           -- driver + sequencer + monitor container (active/passive capable)
 │   ├── axi4lite_scoreboard.sv      -- shadow-register-model checker
 │   ├── axi4lite_coverage_collector.sv -- functional coverage (op x address-region, wstrb, resp)
 │   ├── axi4lite_env.sv             -- top-level environment (agent + scoreboard + coverage)
-│   ├── axi4lite_tests.sv           -- base_test, smoke_test, random_test
+│   ├── axi4lite_tests.sv           -- base_test, smoke_test, random_test, corner_test
 │   ├── axi4lite_pkg.sv             -- package bundling all `include`d class files
 │   ├── tb_top.sv                   -- clock/reset gen, DUT+interface instantiation, run_test()
 │   └── tb_simple.sv                -- plain (non-UVM) direct-drive sanity check
@@ -96,6 +97,7 @@ make simple                                    # plain (non-UVM) direct-drive sa
 make uvm TEST=axi4lite_smoke_test              # directed write/read-back smoke test
 make uvm TEST=axi4lite_random_test SEED=42     # constrained-random regression, reproducible via seed
 make uvm-sweep TEST=axi4lite_random_test N=20  # build once, run seeds 1..N, report which (if any) failed
+make uvm-sweep TEST=axi4lite_corner_test N=20  # random traffic through the corner-case driver
 make uvm TEST=axi4lite_random_test DATA_WIDTH=64  # any target: DATA_WIDTH=32 (default) or 64
 
 make formal SEED=7                             # assume/assert/cover env, bounded randomly-driven sim
@@ -115,6 +117,17 @@ make clean
   then reads them back. `axi4lite_random_test`: `NUM_TXNS` write/read-back
   pairs, address 90% in range / 10% out of range (SLVERR path), random
   WSTRB including all-zero and partial strobes.
+- **Corner cases by factory override.** `axi4lite_corner_test` is the
+  random test with one extra line in `build_phase`: a type override from
+  `axi4lite_driver` to `axi4lite_corner_driver`; env and agent are untouched.
+  The corner driver adds legal stimulus the sequences can't express: AW
+  and W starting 1-4 cycles apart in either order (the base driver always
+  starts them together, so the DUT's AW-first / W-first latch paths are
+  otherwise never reached), and unaligned addresses (the DUT ignores the
+  byte-select bits). Being legal, it must pass like the random test; a
+  failure would be a DUT bug on those paths. It overrides the driver's
+  per-channel tasks, which are `virtual` for this reason, and its
+  `check_phase` errors if any injection never happened.
 - **Scoreboard.** Keeps its own copy of the register file, updated on every
   in-range OKAY write with WSTRB byte merging; every in-range read is
   compared against it. In-range accesses must return OKAY, out-of-range
@@ -140,9 +153,9 @@ seed with no summary (crash or hang) counts as a failure. Sign-off, all
 three enforced per seed by the script:
 
 1. zero `UVM_ERROR` / `UVM_FATAL` across the sweep,
-2. 100% functional coverage (`COV_GOAL`, 100 for `axi4lite_random_test`;
-   the smoke test only exercises in-range full-word traffic, so it isn't
-   held to it),
+2. 100% functional coverage (`COV_GOAL`, 100 for `axi4lite_random_test`
+   and `axi4lite_corner_test`; the smoke test only exercises in-range
+   full-word traffic, so it isn't held to it),
 3. no outstanding transactions at the end of every test (a `UVM_ERROR`
    from the monitor's `check_phase`, so it falls under 1).
 
@@ -186,9 +199,8 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
 
 1. **UVM RAL**
 2. **Pipelined driver/monitor: more than one request in flight, random BREADY/RREADY backpressure**
-3. **Error injection via factory override**
-4. **Implemente AWPROT/ARPROT**
-5. **Cover-point closure reporting for `formal/`**
-6. **Wire both sweeps and `formal-verify-all` into CI, for both `DATA_WIDTH`s**
-7. **Explain/resolve "Covered with Warning" in the qverify GUI**
+3. **Implemente AWPROT/ARPROT**
+4. **Cover-point closure reporting for `formal/`**
+5. **Wire both sweeps and `formal-verify-all` into CI, for both `DATA_WIDTH`s**
+6. **Explain/resolve "Covered with Warning" in the qverify GUI**
 

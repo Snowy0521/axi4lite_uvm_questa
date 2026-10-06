@@ -40,7 +40,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
     forever begin
       axi4lite_txn tr;
       seq_item_port.get_next_item(tr);
-      `uvm_info("DRV", $sformatf("Got transaction: op=%0d addr=0x%0h data=0x%0h", tr.op, tr.addr, tr.wdata), UVM_LOW)
+      `uvm_info("DRV", $sformatf("Got transaction: op=%0d addr=0x%0h data=0x%0h", tr.op, tr.addr, tr.wdata), UVM_HIGH)
       if (tr.op == AXI_WRITE) drive_write(tr);
       else                    drive_read(tr);
       seq_item_port.item_done();
@@ -59,44 +59,54 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   endtask
 
   // ------------------------------------------------------------------
-  // Write: drive AW and W concurrently, each with its own timeout watchdog.
+  // Write: drive AW and W concurrently, each with its own timeout watchdog,
+  // then wait for B. drive_write / drive_aw / drive_w / drive_read are
+  // virtual so a factory override (axi4lite_corner_driver) can change one
+  // step; a non-virtual task would still be called from run_phase, and the
+  // override would be built but silently never used.
   // ------------------------------------------------------------------
-  task drive_write(axi4lite_txn tr);
+  virtual task drive_write(axi4lite_txn tr);
     fork
-      begin : do_aw
-        vif.drv_cb.awaddr  <= tr.addr;
-        vif.drv_cb.awvalid <= 1'b1;
-        fork
-          begin : wait_awready
-            do @(vif.drv_cb); while (!vif.drv_cb.awready);
-          end
-          begin : awready_timeout
-            repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
-            `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for AWREADY: ", tr.convert2string()})
-          end
-        join_any
-        disable fork;
-        vif.drv_cb.awvalid <= 1'b0;
-      end
-      begin : do_w
-        vif.drv_cb.wdata  <= tr.wdata;
-        vif.drv_cb.wstrb  <= tr.wstrb;
-        vif.drv_cb.wvalid <= 1'b1;
-        fork
-          begin : wait_wready
-            do @(vif.drv_cb); while (!vif.drv_cb.wready);
-          end
-          begin : wready_timeout
-            repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
-            `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for WREADY: ", tr.convert2string()})
-          end
-        join_any
-        disable fork;
-        vif.drv_cb.wvalid <= 1'b0;
-      end
+      drive_aw(tr);
+      drive_w(tr);
     join
+    wait_b(tr);
+  endtask
 
-    // wait for the write response
+  virtual task drive_aw(axi4lite_txn tr);
+    vif.drv_cb.awaddr  <= tr.addr;
+    vif.drv_cb.awvalid <= 1'b1;
+    fork
+      begin : wait_awready
+        do @(vif.drv_cb); while (!vif.drv_cb.awready);
+      end
+      begin : awready_timeout
+        repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
+        `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for AWREADY: ", tr.convert2string()})
+      end
+    join_any
+    disable fork;
+    vif.drv_cb.awvalid <= 1'b0;
+  endtask
+
+  virtual task drive_w(axi4lite_txn tr);
+    vif.drv_cb.wdata  <= tr.wdata;
+    vif.drv_cb.wstrb  <= tr.wstrb;
+    vif.drv_cb.wvalid <= 1'b1;
+    fork
+      begin : wait_wready
+        do @(vif.drv_cb); while (!vif.drv_cb.wready);
+      end
+      begin : wready_timeout
+        repeat (axi4lite_pkg::TIMEOUT_CYCLES) @(vif.drv_cb);
+        `uvm_fatal("DRV_TIMEOUT", {"timed out waiting for WREADY: ", tr.convert2string()})
+      end
+    join_any
+    disable fork;
+    vif.drv_cb.wvalid <= 1'b0;
+  endtask
+
+  task wait_b(axi4lite_txn tr);
     fork
       begin : wait_bvalid
         do @(vif.drv_cb); while (!vif.drv_cb.bvalid);
@@ -113,7 +123,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   // ------------------------------------------------------------------
   // Read
   // ------------------------------------------------------------------
-  task drive_read(axi4lite_txn tr);
+  virtual task drive_read(axi4lite_txn tr);
     vif.drv_cb.araddr  <= tr.addr;
     vif.drv_cb.arvalid <= 1'b1;
     fork

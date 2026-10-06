@@ -40,9 +40,9 @@ TEST      ?= axi4lite_smoke_test
 SEED      ?= 42
 N         ?= 20
 # uvm-sweep fails a seed whose functional coverage is below COV_GOAL (%).
-# 100 for the random test (sign-off); the smoke test only reaches part of
-# the model by design, so it isn't held to it.
-COV_GOAL  ?= $(if $(filter axi4lite_random_test,$(TEST)),100,0)
+# 100 for the random and corner-case tests (sign-off); the smoke test
+# only reaches part of the model by design, so it isn't held to it.
+COV_GOAL  ?= $(if $(filter axi4lite_random_test axi4lite_corner_test,$(TEST)),100,0)
 RTL_DIR   := ../rtl
 TB_DIR    := ../tb
 FORMAL_DIR := ../formal
