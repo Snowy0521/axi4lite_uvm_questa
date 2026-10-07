@@ -51,9 +51,9 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
     // drive clockvars through drv_cb -- output skew (#2, see axi4lite_if.sv)
     vif.drv_cb.awvalid <= 1'b0;
     vif.drv_cb.wvalid  <= 1'b0;
-    vif.drv_cb.bready  <= 1'b1;   // always ready to accept a write response in this simple driver
+    vif.drv_cb.bready  <= 1'b1;   // per-response backpressure is set in wait_b / drive_read
     vif.drv_cb.arvalid <= 1'b0;
-    vif.drv_cb.rready  <= 1'b1;   // always ready to accept read data in this simple driver
+    vif.drv_cb.rready  <= 1'b1;
 
     @(vif.drv_cb);
   endtask
@@ -61,11 +61,12 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   // ------------------------------------------------------------------
   // Write: drive AW and W concurrently, each with its own timeout watchdog,
   // then wait for B. drive_write / drive_aw / drive_w / drive_read are
-  // virtual so a factory override (axi4lite_corner_driver) can change one
+  // virtual so a factory override (axi4lite_unaligned_driver) can change one
   // step; a non-virtual task would still be called from run_phase, and the
   // override would be built but silently never used.
   // ------------------------------------------------------------------
   virtual task drive_write(axi4lite_txn tr);
+    pick_skew();
     fork
       drive_aw(tr);
       drive_w(tr);
@@ -73,7 +74,26 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
     wait_b(tr);
   endtask
 
+  // Cycles each half of the write in progress waits before starting; at
+  // most one is nonzero. Without a skew AW and W always start together and
+  // the DUT's AW-first / W-first paths (spec: either order is legal) never
+  // run. Here: half the writes together, a quarter each with one channel
+  // 1-2 cycles late. Once one cycle apart, the DUT's latch paths are the
+  // same however long the gap, so a wider skew wouldn't reach anything new.
+  protected int unsigned aw_delay, w_delay;
+
+  virtual function void pick_skew();
+    aw_delay = 0;
+    w_delay  = 0;
+    case ($urandom_range(3, 0))
+      0:       w_delay  = $urandom_range(2, 1);   // AW first
+      1:       aw_delay = $urandom_range(2, 1);   // W first
+      default: ;                                  // same cycle
+    endcase
+  endfunction
+
   virtual task drive_aw(axi4lite_txn tr);
+    repeat (aw_delay) @(vif.drv_cb);
     vif.drv_cb.awaddr  <= tr.addr;
     vif.drv_cb.awvalid <= 1'b1;
     fork
@@ -90,6 +110,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   endtask
 
   virtual task drive_w(axi4lite_txn tr);
+    repeat (w_delay) @(vif.drv_cb);
     vif.drv_cb.wdata  <= tr.wdata;
     vif.drv_cb.wstrb  <= tr.wstrb;
     vif.drv_cb.wvalid <= 1'b1;
@@ -106,10 +127,27 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
     vif.drv_cb.wvalid <= 1'b0;
   endtask
 
+  // Backpressure on B and R: cycles a response's VALID waits for READY.
+  // Half the time READY is already high, otherwise it goes high 1-3 cycles
+  // after VALID. Without it no VALID ever waits on a low READY, and the
+  // DUT's hold-until-accepted paths never run (code coverage showed it).
+  virtual function int unsigned pick_ready_stall();
+    return $urandom_range(1, 0) ? 0 : $urandom_range(3, 1);
+  endfunction
+
   task wait_b(axi4lite_txn tr);
+    int unsigned stall = pick_ready_stall();
+    vif.drv_cb.bready <= (stall == 0);
     fork
       begin : wait_bvalid
         do @(vif.drv_cb); while (!vif.drv_cb.bvalid);
+        if (stall != 0) begin
+          // BVALID is up with BREADY low at this edge; keep it low for
+          // `stall` edges in all, then accept.
+          repeat (stall - 1) @(vif.drv_cb);
+          vif.drv_cb.bready <= 1'b1;
+          do @(vif.drv_cb); while (!vif.drv_cb.bvalid);
+        end
         tr.resp = vif.drv_cb.bresp; // update transaction object using "="
       end
       begin : bresp_timeout
@@ -124,6 +162,7 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   // Read
   // ------------------------------------------------------------------
   virtual task drive_read(axi4lite_txn tr);
+    int unsigned stall;
     vif.drv_cb.araddr  <= tr.addr;
     vif.drv_cb.arvalid <= 1'b1;
     fork
@@ -138,9 +177,17 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
     disable fork;
     vif.drv_cb.arvalid <= 1'b0;
 
+    stall = pick_ready_stall();
+    vif.drv_cb.rready <= (stall == 0);
     fork
       begin : wait_rvalid
         do @(vif.drv_cb); while (!vif.drv_cb.rvalid);
+        if (stall != 0) begin
+          // as in wait_b
+          repeat (stall - 1) @(vif.drv_cb);
+          vif.drv_cb.rready <= 1'b1;
+          do @(vif.drv_cb); while (!vif.drv_cb.rvalid);
+        end
         tr.rdata = vif.drv_cb.rdata;
         tr.resp  = vif.drv_cb.rresp;
       end

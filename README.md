@@ -20,14 +20,14 @@ axi4lite_uvm/
 │   ├── axi4lite_txn.sv             -- transaction (uvm_sequence_item)
 │   ├── axi4lite_sequencer.sv       -- uvm_sequencer typedef
 │   ├── axi4lite_sequences.sv       -- directed write/read seqs + randomized traffic seq
-│   ├── axi4lite_driver.sv          -- drives transactions onto the bus (AW/W concurrent, timeout-protected, virtual per-channel hooks)
-│   ├── axi4lite_corner_driver.sv      -- factory-override driver: AW/W skew in either order, unaligned addresses
+│   ├── axi4lite_driver.sv          -- drives transactions onto the bus (AW/W concurrent with random skew in either order, timeout-protected, virtual per-channel hooks)
+│   ├── axi4lite_unaligned_driver.sv -- factory-override driver: unaligned addresses
 │   ├── axi4lite_monitor.sv         -- passively reconstructs transactions, broadcasts via analysis port; end-of-test outstanding check
 │   ├── axi4lite_agent.sv           -- driver + sequencer + monitor container (active/passive capable)
 │   ├── axi4lite_scoreboard.sv      -- shadow-register-model checker
 │   ├── axi4lite_coverage_collector.sv -- functional coverage (per register x op, range edge, data/strobe patterns, resp)
 │   ├── axi4lite_env.sv             -- top-level environment (agent + scoreboard + coverage)
-│   ├── axi4lite_tests.sv           -- base_test, smoke_test, random_test, corner_test
+│   ├── axi4lite_tests.sv           -- base_test, smoke_test, random_test, unaligned_test
 │   ├── axi4lite_pkg.sv             -- package bundling all `include`d class files
 │   ├── tb_top.sv                   -- clock/reset gen, DUT+interface instantiation, run_test()
 │   └── tb_simple.sv                -- plain (non-UVM) direct-drive sanity check
@@ -97,7 +97,7 @@ make simple                                    # plain (non-UVM) direct-drive sa
 make uvm TEST=axi4lite_smoke_test              # directed write/read-back smoke test
 make uvm TEST=axi4lite_random_test SEED=42     # constrained-random regression, reproducible via seed
 make uvm-sweep TEST=axi4lite_random_test N=20  # build once, run seeds 1..N, report which (if any) failed
-make uvm-sweep TEST=axi4lite_corner_test N=20  # random traffic through the corner-case driver
+make uvm-sweep TEST=axi4lite_unaligned_test N=20  # random traffic with unaligned addresses
 make uvm TEST=axi4lite_random_test DATA_WIDTH=64  # any target: DATA_WIDTH=32 (default) or 64
 
 make formal SEED=7                             # assume/assert/cover env, bounded randomly-driven sim
@@ -124,17 +124,24 @@ make clean
   strobe are biased toward the coverage model's patterns: 20% data from
   all-zero / all-one / 0xAA.. / 0x55.., strobes 10% none, 20% full, 20%
   one byte lane, 10% a half word, 40% any other partial.
-- **Corner cases by factory override.** `axi4lite_corner_test` is the
-  random test with one extra line in `build_phase`: a type override from
-  `axi4lite_driver` to `axi4lite_corner_driver`; env and agent are untouched.
-  The corner driver adds legal stimulus the sequences can't express: AW
-  and W starting 1-4 cycles apart in either order (the base driver always
-  starts them together, so the DUT's AW-first / W-first latch paths are
-  otherwise never reached), and unaligned addresses (the DUT ignores the
-  byte-select bits). Being legal, it must pass like the random test; a
-  failure would be a DUT bug on those paths. It overrides the driver's
-  per-channel tasks, which are `virtual` for this reason, and its
-  `check_phase` errors if any injection never happened.
+- **AW/W order.** The base driver starts half its writes with AW or W
+  1-2 cycles late, so the DUT's AW-first / W-first latch paths are part of
+  ordinary random traffic (`cp_aw_w_order` covers it).
+- **Backpressure.** Half the B and R responses find READY already high;
+  the other half wait 1-3 cycles for it (`pick_ready_stall`), so the
+  DUT's hold-until-accepted paths run. The monitor counts the cycles each
+  response waited and `cp_resp_wait` x op covers both cases on both
+  channels.
+- **Unaligned addresses by factory override.** `axi4lite_unaligned_test` is
+  the random test with one extra line in `build_phase`: a type override
+  from `axi4lite_driver` to `axi4lite_unaligned_driver`; env and agent are
+  untouched. The item's alignment constraint keeps every sequence aligned,
+  but the spec defines unaligned accesses (the DUT ignores the byte-select
+  bits), so this driver sets them on half the writes and reads. Being
+  legal, it must pass like the random test; a failure would be a DUT bug.
+  It overrides the driver's `drive_write` / `drive_read`, which are
+  `virtual` for this reason (otherwise the override would be built but
+  never called), and its `check_phase` errors if it never injected.
 - **Scoreboard.** Keeps its own copy of the register file, updated on every
   in-range OKAY write with WSTRB byte merging; every in-range read is
   compared against it. In-range accesses must return OKAY, out-of-range
@@ -144,7 +151,12 @@ make clean
   (`cp_word`), crossed with the operation so each register is both
   written and read and out-of-range writes happen, not only reads.
   Data bit patterns (all-zero, all-one, alternating both ways), strobes
-  (none, full, each byte lane, each half word), both only on writes.
+  (none, full, each byte lane, each half word), both only on writes, and
+  every strobe shape on a valid register (`cx_wstrb_region`), where it
+  reaches the byte-merge logic. Which half of a write was accepted first
+  (`cp_aw_w_order`: AW first, W first, same cycle), recorded by the
+  monitor -- the spec allows either order and nothing else in the model
+  would notice a driver that never varies it.
   Responses, with EXOKAY / DECERR as `illegal_bins`. `illegal_bins` in
   the address-region x response cross also flag an OKAY to an
   out-of-range address or a SLVERR to an in-range one.
@@ -173,7 +185,7 @@ enforced by the script:
 
 1. zero `UVM_ERROR` / `UVM_FATAL` in every seed,
 2. 100% functional coverage **merged over the sweep** (`COV_GOAL`, 100
-   for `axi4lite_random_test` and `axi4lite_corner_test`; the smoke test
+   for `axi4lite_random_test` and `axi4lite_unaligned_test`; the smoke test
    only exercises in-range full-word traffic, so it isn't held to it).
    One seed of `NUM_TXNS` writes isn't expected to hit every register x
    op and every pattern; the regression is,
@@ -185,11 +197,28 @@ enforced by the script:
 QuestaSim 2024.3, `make uvm-sweep N=20` -- seeds 1..20 each, zero
 `UVM_ERROR` / `UVM_FATAL`, no outstanding transactions:
 
-| Test                   | Configuration | Seeds         | Merged coverage |
-|------------------------|---------------|---------------|-----------------|
-| `axi4lite_random_test` | 32-bit        | 20 / 20 pass  | 100%            |
-| `axi4lite_random_test` | 64-bit        | 20 / 20 pass  | 100%            |
-| `axi4lite_corner_test` | 32-bit        | 20 / 20 pass  | 100%            |
+| Test                      | Configuration | Seeds        | Merged functional coverage |
+|---------------------------|---------------|--------------|----------------------------|
+| `axi4lite_random_test`    | 32-bit        | 20 / 20 pass | 100%                       |
+| `axi4lite_random_test`    | 64-bit        | 20 / 20 pass | 100%                       |
+| `axi4lite_unaligned_test` | 32-bit        | 20 / 20 pass | 100%                       |
+
+DUT code coverage, merged: statements 35 / 35, branches 21 / 21,
+conditions 11 / 15. Code coverage first came in at 9 / 15, and all six
+missing condition terms were one stimulus gap that functional coverage
+couldn't show, since the plan had no such scenario: the driver held
+BREADY / RREADY high, so no response ever waited for READY. Random B / R
+backpressure (and `cp_resp_wait` in the plan) closed two. The other four
+need a second request to arrive while the slave is still busy with the
+first, which this one-at-a-time driver can't produce; each is reached in
+formal instead, where the master is free:
+
+| RTL condition term never hit in UVM                   | Formal cover                       |
+|-------------------------------------------------------|------------------------------------|
+| `awvalid && awready` with AWREADY low                 | `cp_aw_ready_after_valid`          |
+| `wvalid && wready` with WREADY low                    | `cp_w_ready_after_valid`           |
+| `arvalid && arready` with ARREADY low                 | `cp_ar_ready_after_valid`          |
+| write fire held off by a pending BVALID (both halves in) | `cp_write_arrives_while_b_pending` |
 
 - **Seeds really differ.** Seeds are passed with Questa's `-sv_seed`.
   Earlier sweeps used `+ntb_random_seed`, a VCS option Questa ignores, so
@@ -199,6 +228,12 @@ QuestaSim 2024.3, `make uvm-sweep N=20` -- seeds 1..20 each, zero
 - **Sign-off is on the merge.** A single seed isn't required to close the
   model; the merged sweep is. The per-seed figure printed by `uvm-sweep` is
   for information only.
+- **Code coverage.** The RTL alone is compiled with `+cover=bcesf`
+  (statement, branch, condition, expression, FSM) and collected into the
+  same UCDBs; `uvm-sweep` prints the merged DUT summary and writes
+  `merged_code.txt`. It isn't gated: each hole needs a reason first --
+  missing stimulus, a scenario missing from the plan, or code proven
+  unreachable and waived.
 
 ## Formal results
 
@@ -206,8 +241,8 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
 
 | Configuration | Asserts            | Covers            |
 |---------------|--------------------|-------------------|
-| 32-bit        | 57 / 57 proven     | 42 / 42 covered   |
-| 64-bit        | 65 / 65 proven     | 42 / 42 covered   |
+| 32-bit        | 57 / 57 proven     | 43 / 43 covered   |
+| 64-bit        | 65 / 65 proven     | 43 / 43 covered   |
 
 - **Assumption-free**: `make formal-verify-noassume` proves every assert
   with the assumptions compiled out -- correct against any master.
@@ -229,17 +264,20 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
   and a frame condition (a register changes only on an in-range write to it).
 - **Mutation**: aliasing out-of-range writes onto `regfile[word_idx[3:0]]`
   (still answering SLVERR) fires both `a_e2e_read_data` and the frame condition.
-- **Known, benign: ~27-32 covers are "Covered with Warning".** At the first
+- **Known, benign: 33 covers are "Covered with Warning".** At the first
   tick `$rose`/`$stable` have no previous sample; qverify models it as a
   free control point and flags witnesses that assign it (confirmed in the
   Control Point Values window). This can't cause a false proof, and every
   flagged cover has a legal trace; rewriting e.g. `$rose(x) && y` as
-  `!x ##1 (x && y)` clears it, but the standard SVA forms are kept.
+  `!x ##1 (x && y)` clears it, but the standard SVA forms are kept. Some
+  flagged covers use neither function (e.g. `cp_e2e_partial_strobe_merge`,
+  `cp_write_arrives_while_b_pending`); their control points are still to
+  be checked in the GUI.
 
 ## Next steps / extension points
 
 1. **UVM RAL**
-2. **Pipelined driver/monitor: more than one request in flight, random BREADY/RREADY backpressure**
+2. **Pipelined driver/monitor: more than one request in flight**
 3. **Implemente AWPROT/ARPROT**
 4. **Cover-point closure reporting for `formal/`**
 5. **Wire both sweeps and `formal-verify-all` into CI, for both `DATA_WIDTH`s**

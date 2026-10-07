@@ -135,6 +135,20 @@ module axi4lite_covers #(
   );
   cp_b_and_r_pending: cover property (bvalid && rvalid);
 
+  // The next write arrives in full while the previous B is still waiting
+  // for BREADY: both its AW and W are accepted (either order) with BVALID
+  // high and BREADY low throughout, and BVALID is still up the cycle after,
+  // when the DUT holds both halves but must not fire the write yet. The
+  // UVM driver issues one transaction at a time, so this is the one
+  // condition term of the DUT's write-fire check (bvalid blocking it) that
+  // simulation never reaches.
+  cp_write_arrives_while_b_pending: cover property (
+    (bvalid && !bready) ##1
+    ((bvalid && !bready) throughout
+       ((awvalid && awready)[->1] and (wvalid && wready)[->1]))
+    ##1 bvalid
+  );
+
   // Write-then-read-back: a full-strobe OKAY write, then a read of the
   // same register returning that (non-reset) data. Tracks the last such
   // write; the AW/W latches mirror the DUT's own.

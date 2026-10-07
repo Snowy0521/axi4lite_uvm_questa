@@ -40,10 +40,10 @@ TEST      ?= axi4lite_smoke_test
 SEED      ?= 42
 N         ?= 20
 # uvm-sweep fails if the functional coverage merged over its passing seeds
-# is below COV_GOAL (%). 100 for the random and corner-case tests
+# is below COV_GOAL (%). 100 for the random and unaligned-address tests
 # (sign-off); the smoke test only reaches part of the model by design, so
 # it isn't held to it. One seed isn't expected to close the model alone.
-COV_GOAL  ?= $(if $(filter axi4lite_random_test axi4lite_corner_test,$(TEST)),100,0)
+COV_GOAL  ?= $(if $(filter axi4lite_random_test axi4lite_unaligned_test,$(TEST)),100,0)
 RTL_DIR   := ../rtl
 TB_DIR    := ../tb
 FORMAL_DIR := ../formal
@@ -118,28 +118,43 @@ simple: simple-build
 # ============================================================================
 # UVM testbench (tb/) via QuestaSim
 # ============================================================================
+# Code coverage on the RTL only (statement, branch, condition, expression,
+# FSM), not on the UVM library or the testbench: the RTL is compiled in its
+# own vlog call with +cover, and vsim -coverage collects it into the same
+# UCDB as the covergroups.
+CODE_COV ?= bcesf
+
 uvm-build: lib
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
 	     +incdir+$(UVM_HOME) +define+UVM_NO_DPI \
+	     $(UVM_HOME)/uvm_pkg.sv
+	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) +cover=$(CODE_COV) \
+	     +incdir+$(RTL_DIR) \
+	     $(RTL_FILES)
+	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
+	     +incdir+$(UVM_HOME) +define+UVM_NO_DPI \
 	     +incdir+$(TB_DIR) +incdir+$(RTL_DIR) \
-	     $(UVM_HOME)/uvm_pkg.sv $(RTL_FILES) $(TB_FILES)
+	     $(TB_FILES)
 	$(VOPT) +acc tb_top -o tb_top_opt
 
 uvm: uvm-build
-	$(VSIM) -c tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
+	$(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
 	     +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish exit -do "run -all; quit -f"
 
 # Each seed saves its coverage to $(UVM_COV_DIR)/seed_<n>.ucdb (same
 # -onfinish stop / coverage save pattern as formal-coverage); the passing
 # seeds are merged with vcover and the merged covergroup coverage is held to
 # COV_GOAL. merged_cvg.txt is kept for finding the bins still at zero.
+# Code coverage of the DUT is reported too (merged_code.txt, summary
+# printed) but not gated: a code hole needs a reason -- missing stimulus,
+# missing plan item, or unreachable code -- before it can be waived.
 UVM_COV_DIR := uvm_cov_ucdb
 
 uvm-sweep: uvm-build
 	@rm -rf $(UVM_COV_DIR); mkdir -p $(UVM_COV_DIR); \
 	fail=0; \
 	for s in $$(seq 1 $(N)); do \
-	  out=$$($(VSIM) -c tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $$s \
+	  out=$$($(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $$s \
 	         +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish stop \
 	         -do "run -all; coverage save $(UVM_COV_DIR)/seed_$$s.ucdb; quit -f" 2>&1); \
 	  sfail=0; \
@@ -174,6 +189,12 @@ uvm-sweep: uvm-build
 	    echo "MERGED COVERAGE: $$mcov% < COV_GOAL=$(COV_GOAL)% -- bins at zero in $(UVM_COV_DIR)/merged_cvg.txt"; \
 	    fail=1; \
 	  fi; \
+	  $(VCOVER) report -details $(UVM_COV_DIR)/merged.ucdb \
+	       > $(UVM_COV_DIR)/merged_code.txt 2>&1; \
+	  echo "DUT CODE COVERAGE (merged, not gated; details in $(UVM_COV_DIR)/merged_code.txt):"; \
+	  awk '/^=== Instance: / { dut = ($$3 == "/tb_top/dut") } \
+	       dut && /^ +(Statements|Branches|Conditions|Expressions|FSM)/ { print "  " $$0 }' \
+	      $(UVM_COV_DIR)/merged_code.txt; \
 	else \
 	  echo "MERGED COVERAGE: no passing seed to merge"; \
 	  fail=1; \

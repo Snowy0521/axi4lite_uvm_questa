@@ -104,6 +104,7 @@ class axi4lite_monitor extends uvm_monitor;
   task monitor_write();
     forever begin
       axi4lite_txn tr = axi4lite_txn::type_id::create("tr");
+      time         aw_t, w_t;   // when each half was accepted, for aw_w_order
       tr.op = AXI_WRITE;
 
       fork
@@ -121,6 +122,7 @@ class axi4lite_monitor extends uvm_monitor;
           join_any
           disable fork;
           tr.addr = vif.mon_cb.awaddr;
+          aw_t    = $time;
         end
         begin : do_w
           fork
@@ -137,12 +139,18 @@ class axi4lite_monitor extends uvm_monitor;
           disable fork;
           tr.wdata = vif.mon_cb.wdata;
           tr.wstrb = vif.mon_cb.wstrb;
+          w_t      = $time;
         end
       join
+      tr.aw_w_order = (aw_t < w_t) ? AW_FIRST :
+                      (w_t < aw_t) ? W_FIRST  : AW_W_SAME_CYCLE;
 
       fork
         begin : wait_b
-          do @(vif.mon_cb); while (!(vif.mon_cb.bvalid && vif.mon_cb.bready));
+          do begin
+            @(vif.mon_cb);
+            if (vif.mon_cb.bvalid && !vif.mon_cb.bready) tr.resp_stall++;   // backpressure
+          end while (!(vif.mon_cb.bvalid && vif.mon_cb.bready));
         end
         begin : b_stall_watch
           forever begin
@@ -185,7 +193,10 @@ class axi4lite_monitor extends uvm_monitor;
 
       fork
         begin : wait_r
-          do @(vif.mon_cb); while (!(vif.mon_cb.rvalid && vif.mon_cb.rready));
+          do begin
+            @(vif.mon_cb);
+            if (vif.mon_cb.rvalid && !vif.mon_cb.rready) tr.resp_stall++;   // backpressure
+          end while (!(vif.mon_cb.rvalid && vif.mon_cb.rready));
         end
         begin : r_stall_watch
           forever begin

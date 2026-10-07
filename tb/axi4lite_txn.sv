@@ -8,6 +8,9 @@
 
 typedef enum bit { AXI_WRITE, AXI_READ } axi4lite_op_e;
 
+// Which half of a write was accepted first, as the monitor saw it.
+typedef enum bit [1:0] { AW_W_SAME_CYCLE, AW_FIRST, W_FIRST } axi4lite_aw_w_order_e;
+
 class axi4lite_txn extends uvm_sequence_item;
 
   rand axi4lite_op_e                               op;
@@ -16,6 +19,8 @@ class axi4lite_txn extends uvm_sequence_item;
   rand bit [STRB_WIDTH-1:0]          wstrb;    // valid only for op == AXI_WRITE
        bit [DATA_WIDTH-1:0]          rdata;    // filled in by the monitor/driver on a read
        bit [1:0]                                   resp;     // BRESP/RRESP as observed
+       axi4lite_aw_w_order_e         aw_w_order;  // writes only: filled in by the monitor
+       int unsigned                  resp_stall;  // cycles BVALID/RVALID waited for READY (monitor)
 
   // --------------------------------------------------------------------
   // Constraints
@@ -38,6 +43,8 @@ class axi4lite_txn extends uvm_sequence_item;
     `uvm_field_int  (wstrb,               UVM_ALL_ON)
     `uvm_field_int  (rdata,               UVM_ALL_ON)
     `uvm_field_int  (resp,                UVM_ALL_ON)
+    `uvm_field_enum(axi4lite_aw_w_order_e, aw_w_order, UVM_ALL_ON)
+    `uvm_field_int  (resp_stall,          UVM_ALL_ON)
   `uvm_object_utils_end
 
   function new(string name = "axi4lite_txn");

@@ -18,7 +18,9 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
 	   logic [ADDR_WIDTH-1:0] 	addr,
 	   logic [DATA_WIDTH-1:0]		wdata,
 	   logic [STRB_WIDTH-1:0]		wstrb,
-	   logic [1:0]					resp); 
+	   logic [1:0]					resp,
+	   axi4lite_aw_w_order_e			aw_w_order,
+	   int unsigned				resp_stall);
 
         option.per_instance = 1; // Each instance of the coverage collector will have its own coverage group
 
@@ -29,7 +31,7 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
 
         // Address region, for the response cross: in range (must be OKAY)
         // or not (must be SLVERR). Byte addresses, so unaligned ones in the
-        // last word (axi4lite_corner_driver drives those) count as in range.
+        // last word (axi4lite_unaligned_driver drives those) count as in range.
         cp_addr: coverpoint addr {
             bins in_range     = {[0 : NUM_REGS*STRB_WIDTH - 1]};
             bins out_of_range = {[NUM_REGS*STRB_WIDTH : MAX_ADDR]};
@@ -63,6 +65,25 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
             bins hi_half = {STRB_HI_HALF};
         }
 
+        // Which half of a write was accepted first. The spec allows either
+        // order and the DUT has a separate latch path for each; a driver
+        // that always starts AW and W together reaches neither, and nothing
+        // in the rest of this model would notice.
+        cp_aw_w_order: coverpoint aw_w_order iff (op == AXI_WRITE) {
+            bins same_cycle = {AW_W_SAME_CYCLE};
+            bins aw_first   = {AW_FIRST};
+            bins w_first    = {W_FIRST};
+        }
+
+        // Whether the response (B or R, per the cross with cp_op) waited for
+        // READY. Without backpressure the DUT's hold-until-accepted paths
+        // never run, and nothing else in this model would notice.
+        cp_resp_wait: coverpoint (resp_stall != 0) {
+            bins ready_first  = {0};
+            bins valid_waited = {1};
+        }
+        cx_op_resp_wait: cross cp_op, cp_resp_wait;
+
         // This DUT only answers OKAY or SLVERR; anything else is an error
         // here, not a silently ignored value.
         cp_resp: coverpoint resp {
@@ -79,6 +100,14 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
 
         // Each region seen with its response. An in-range access must never
         // get SLVERR, an out-of-range one never OKAY -- illegal_bins flag it.
+        // Every strobe shape on a valid register, where it actually reaches
+        // the byte-merge logic: an out-of-range write is answered SLVERR
+        // without touching a register, so cp_wstrb alone could be closed by
+        // out-of-range writes only.
+        cx_wstrb_region: cross cp_wstrb, cp_addr {
+            ignore_bins out_of_range = binsof(cp_addr.out_of_range);
+        }
+
         cx_addr_resp: cross cp_addr, cp_resp {
             illegal_bins invalid_out_of_range_ok = binsof(cp_addr.out_of_range) && binsof(cp_resp.ok);
             illegal_bins invalid_in_range_err    = binsof(cp_addr.in_range) && binsof(cp_resp.slverr);
@@ -92,7 +121,7 @@ class axi4lite_coverage_collector extends uvm_subscriber #(axi4lite_txn);
 
     // Argument must be named `t` to match uvm_subscriber#(T)'s pure virtual write(T t) exactly
     function void write(axi4lite_txn t);
-        cg_axi4lite.sample(t.op, t.addr, t.wdata, t.wstrb, t.resp);
+        cg_axi4lite.sample(t.op, t.addr, t.wdata, t.wstrb, t.resp, t.aw_w_order, t.resp_stall);
     endfunction
 
     function void report_phase(uvm_phase phase);
