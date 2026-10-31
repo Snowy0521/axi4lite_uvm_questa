@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="490" viewBox="0 0 900 490" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ea580c"/></marker>
+    <marker id="a-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/></marker>
+  </defs>
+  <style>
+    .h   { font-size: 14px; font-weight: bold; fill: #111827; }
+    .t   { font-size: 12px; fill: #374151; }
+    .c   { font-size: 12px; font-weight: bold; fill: #6b7280; }
+    .lbl { font-size: 11px; }
+    .blue   { stroke: #2563eb; fill: none; stroke-width: 1.8; }
+    .orange { stroke: #ea580c; fill: none; stroke-width: 1.8; }
+    .grey   { stroke: #4b5563; fill: none; stroke-width: 1.5; }
+  </style>
+
+  <rect width="900" height="490" fill="#ffffff"/>
+  <text x="450" y="32" text-anchor="middle" font-size="17" font-weight="bold" fill="#111827">UVM environment</text>
+
+  <!-- test / env containers -->
+  <rect x="20" y="55" width="600" height="375" rx="8" fill="#fafafa" stroke="#9ca3af"/>
+  <text x="34" y="76" class="c">test (smoke / random / unaligned: picks sequence and driver by factory override)</text>
+  <rect x="40" y="90" width="565" height="320" rx="8" fill="#ffffff" stroke="#9ca3af"/>
+  <text x="54" y="110" class="c">env</text>
+
+  <!-- agent -->
+  <rect x="60" y="120" width="300" height="260" rx="8" fill="#f9fafb" stroke="#9ca3af" stroke-dasharray="5 3"/>
+  <text x="74" y="140" class="c">agent (active)</text>
+
+  <rect x="80" y="155" width="120" height="55" rx="6" fill="#eef2ff" stroke="#4f46e5"/>
+  <text x="140" y="178" text-anchor="middle" class="h">sequencer</text>
+  <text x="140" y="196" text-anchor="middle" class="t">runs the sequence</text>
+
+  <path d="M200,182 L238,182" class="grey" marker-end="url(#a-grey)"/>
+  <text x="219" y="174" text-anchor="middle" class="lbl" fill="#4b5563">txn</text>
+  <rect x="240" y="155" width="105" height="55" rx="6" fill="#eef2ff" stroke="#4f46e5"/>
+  <text x="292" y="178" text-anchor="middle" class="h">driver</text>
+  <text x="292" y="196" text-anchor="middle" class="t">skew, stall</text>
+
+  <rect x="80" y="290" width="265" height="70" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="212" y="314" text-anchor="middle" class="h">monitor</text>
+  <text x="212" y="332" text-anchor="middle" class="t">rebuilds each transaction</text>
+  <text x="212" y="348" text-anchor="middle" class="t">at its B / R handshake</text>
+
+  <!-- analysis port to subscribers -->
+  <path d="M345,325 L410,325 L410,250 L438,250" class="grey" marker-end="url(#a-grey)"/>
+  <path d="M410,325 L438,325" class="grey" marker-end="url(#a-grey)"/>
+  <text x="416" y="292" class="lbl" fill="#4b5563">analysis</text>
+  <text x="416" y="305" class="lbl" fill="#4b5563">port</text>
+
+  <rect x="440" y="220" width="150" height="60" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="515" y="244" text-anchor="middle" class="h">scoreboard</text>
+  <text x="515" y="262" text-anchor="middle" class="t">shadow registers</text>
+
+  <rect x="440" y="295" width="150" height="60" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="515" y="319" text-anchor="middle" class="h">coverage</text>
+  <text x="515" y="337" text-anchor="middle" class="t">covergroup</text>
+
+  <!-- DUT side -->
+  <rect x="660" y="140" width="80" height="230" rx="6" fill="#f3f4f6" stroke="#6b7280"/>
+  <text x="700" y="250" text-anchor="middle" class="h">vif</text>
+  <text x="700" y="268" text-anchor="middle" class="t">axi4lite_if</text>
+  <rect x="780" y="140" width="100" height="230" rx="6" fill="#e5e7eb" stroke="#6b7280"/>
+  <text x="830" y="250" text-anchor="middle" class="h">DUT</text>
+  <path d="M740,200 L778,200" class="blue" marker-end="url(#a-blue)"/>
+  <path d="M778,230 L742,230" class="orange" marker-end="url(#a-orange)"/>
+
+  <!-- driver drives, monitor watches -->
+  <path d="M345,182 L630,182 L630,200 L658,200" class="blue" marker-end="url(#a-blue)"/>
+  <text x="625" y="174" text-anchor="end" class="lbl" fill="#2563eb">drives AW / W / AR, B / R ready</text>
+  <path d="M658,330 L620,330 L620,392 L212,392 L212,362" class="orange" marker-end="url(#a-orange)"/>
+  <text x="490" y="386" text-anchor="middle" class="lbl" fill="#ea580c">watches all five channels (passive)</text>
+
+  <text x="660" y="400" class="t">tb_top: clock, reset, DUT,</text>
+  <text x="660" y="416" class="t">vif into config_db, run_test()</text>
+
+  <!-- legend -->
+  <line x1="20" y1="468" x2="55" y2="468" class="blue"/>
+  <text x="62" y="472" class="t">master side (driven by the driver)</text>
+  <line x1="300" y1="468" x2="335" y2="468" class="orange"/>
+  <text x="342" y="472" class="t">DUT outputs / bus observation</text>
+  <line x1="560" y1="468" x2="595" y2="468" class="grey"/>
+  <text x="602" y="472" class="t">testbench-internal</text>
+</svg>

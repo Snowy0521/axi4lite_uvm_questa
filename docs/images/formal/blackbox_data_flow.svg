@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="440" viewBox="0 0 900 440" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ea580c"/></marker>
+    <marker id="a-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/></marker>
+    <marker id="a-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a16207"/></marker>
+  </defs>
+  <style>
+    .h   { font-size: 14px; font-weight: bold; fill: #111827; }
+    .t   { font-size: 12px; fill: #374151; }
+    .lbl { font-size: 11px; }
+    .blue   { stroke: #2563eb; fill: none; stroke-width: 1.8; }
+    .orange { stroke: #ea580c; fill: none; stroke-width: 1.8; }
+    .grey   { stroke: #4b5563; fill: none; stroke-width: 1.5; }
+    .gold   { stroke: #a16207; fill: none; stroke-width: 1.5; stroke-dasharray: 5 3; }
+  </style>
+
+  <rect width="900" height="440" fill="#ffffff"/>
+  <text x="450" y="32" text-anchor="middle" font-size="17" font-weight="bold" fill="#111827">End-to-end data check with a symbolic address</text>
+
+  <!-- DUT ports -->
+  <rect x="20" y="60" width="100" height="300" rx="6" fill="#e5e7eb" stroke="#6b7280"/>
+  <text x="70" y="84" text-anchor="middle" class="h">AXI bus</text>
+  <text x="112" y="116" text-anchor="end" class="h" fill="#2563eb">AW, W</text>
+  <text x="112" y="131" text-anchor="end" class="lbl" fill="#2563eb">from tool</text>
+  <text x="112" y="176" text-anchor="end" class="h" fill="#ea580c">B</text>
+  <text x="112" y="191" text-anchor="end" class="lbl" fill="#ea580c">from DUT</text>
+  <text x="112" y="276" text-anchor="end" class="h" fill="#2563eb">AR</text>
+  <text x="112" y="291" text-anchor="end" class="lbl" fill="#2563eb">from tool</text>
+  <text x="112" y="336" text-anchor="end" class="h" fill="#ea580c">R</text>
+  <text x="112" y="351" text-anchor="end" class="lbl" fill="#ea580c">from DUT</text>
+
+  <!-- write path -->
+  <path d="M120,112 L178,112" class="blue" marker-end="url(#a-blue)"/>
+  <rect x="180" y="85" width="200" height="55" rx="6" fill="#eef2ff" stroke="#4f46e5"/>
+  <text x="280" y="108" text-anchor="middle" class="h">Record the write</text>
+  <text x="280" y="126" text-anchor="middle" class="t">if its address is sym_idx</text>
+
+  <path d="M380,112 L438,112" class="grey" marker-end="url(#a-grey)"/>
+  <path d="M120,172 L438,172" class="orange" marker-end="url(#a-orange)"/>
+  <text x="150" y="165" class="lbl" fill="#ea580c">bresp</text>
+  <rect x="440" y="85" width="200" height="105" rx="6" fill="#f3f4f6" stroke="#4b5563"/>
+  <text x="540" y="110" text-anchor="middle" class="h">Commit on B = OKAY</text>
+  <text x="540" y="132" text-anchor="middle" class="t">merge wdata into the</text>
+  <text x="540" y="148" text-anchor="middle" class="t">expected value, byte by</text>
+  <text x="540" y="164" text-anchor="middle" class="t">byte where wstrb = 1</text>
+
+  <path d="M640,130 L698,130" class="grey" marker-end="url(#a-grey)"/>
+  <rect x="700" y="95" width="170" height="70" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="785" y="120" text-anchor="middle" class="h">Expected value</text>
+  <text x="785" y="138" text-anchor="middle" class="t">of register sym_idx</text>
+  <text x="785" y="154" text-anchor="middle" class="t">(reset value 0)</text>
+
+  <!-- symbolic index -->
+  <rect x="180" y="190" width="200" height="45" rx="6" fill="#fef9c3" stroke="#ca8a04" stroke-width="1.5"/>
+  <text x="280" y="209" text-anchor="middle" class="h">sym_idx</text>
+  <text x="280" y="226" text-anchor="middle" class="t">any register, fixed forever</text>
+  <path d="M280,190 L280,142" class="gold" marker-end="url(#a-gold)"/>
+  <path d="M280,235 L280,243" class="gold" marker-end="url(#a-gold)"/>
+
+  <!-- read path -->
+  <path d="M120,272 L178,272" class="blue" marker-end="url(#a-blue)"/>
+  <rect x="180" y="245" width="200" height="55" rx="6" fill="#eef2ff" stroke="#4f46e5"/>
+  <text x="280" y="268" text-anchor="middle" class="h">Record the read</text>
+  <text x="280" y="286" text-anchor="middle" class="t">if its address is sym_idx</text>
+  <path d="M380,295 L698,295" class="grey" marker-end="url(#a-grey)"/>
+  <text x="540" y="288" text-anchor="middle" class="lbl" fill="#4b5563">check this read</text>
+
+  <path d="M785,165 L785,278" class="grey" marker-end="url(#a-grey)"/>
+  <text x="793" y="215" class="lbl" fill="#4b5563">snapshot taken</text>
+  <text x="793" y="229" class="lbl" fill="#4b5563">at the AR handshake</text>
+
+  <path d="M120,332 L698,332" class="orange" marker-end="url(#a-orange)"/>
+  <text x="150" y="325" class="lbl" fill="#ea580c">rdata</text>
+  <rect x="700" y="280" width="170" height="70" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1.8"/>
+  <text x="785" y="306" text-anchor="middle" class="h">assert</text>
+  <text x="785" y="326" text-anchor="middle" class="t">rdata == snapshot</text>
+
+  <!-- footnote + legend -->
+  <text x="20" y="385" class="t">A read that overlaps a write to sym_idx is not checked: AXI allows either the old or the new value.</text>
+  <line x1="20" y1="418" x2="55" y2="418" class="blue"/>
+  <text x="62" y="422" class="t">master inputs (free in formal)</text>
+  <line x1="290" y1="418" x2="325" y2="418" class="orange"/>
+  <text x="332" y="422" class="t">DUT outputs</text>
+  <line x1="450" y1="418" x2="485" y2="418" class="grey"/>
+  <text x="492" y="422" class="t">checker-internal</text>
+</svg>

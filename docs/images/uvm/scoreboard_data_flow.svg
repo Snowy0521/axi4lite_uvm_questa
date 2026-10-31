@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="440" viewBox="0 0 900 440" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ea580c"/></marker>
+    <marker id="a-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/></marker>
+  </defs>
+  <style>
+    .h   { font-size: 14px; font-weight: bold; fill: #111827; }
+    .t   { font-size: 12px; fill: #374151; }
+    .lbl { font-size: 11px; }
+    .blue   { stroke: #2563eb; fill: none; stroke-width: 1.8; }
+    .orange { stroke: #ea580c; fill: none; stroke-width: 1.8; }
+    .grey   { stroke: #4b5563; fill: none; stroke-width: 1.5; }
+  </style>
+
+  <rect width="900" height="440" fill="#ffffff"/>
+  <text x="450" y="32" text-anchor="middle" font-size="17" font-weight="bold" fill="#111827">Scoreboard data check with shadow registers</text>
+
+  <!-- DUT ports -->
+  <rect x="20" y="60" width="100" height="300" rx="6" fill="#e5e7eb" stroke="#6b7280"/>
+  <text x="70" y="84" text-anchor="middle" class="h">AXI bus</text>
+  <text x="112" y="116" text-anchor="end" class="h" fill="#2563eb">AW, W</text>
+  <text x="112" y="131" text-anchor="end" class="lbl" fill="#2563eb">from driver</text>
+  <text x="112" y="176" text-anchor="end" class="h" fill="#ea580c">B</text>
+  <text x="112" y="191" text-anchor="end" class="lbl" fill="#ea580c">from DUT</text>
+  <text x="112" y="276" text-anchor="end" class="h" fill="#2563eb">AR</text>
+  <text x="112" y="291" text-anchor="end" class="lbl" fill="#2563eb">from driver</text>
+  <text x="112" y="336" text-anchor="end" class="h" fill="#ea580c">R</text>
+  <text x="112" y="351" text-anchor="end" class="lbl" fill="#ea580c">from DUT</text>
+
+  <!-- write path -->
+  <path d="M120,112 L178,112" class="blue" marker-end="url(#a-blue)"/>
+  <path d="M120,172 L178,172" class="orange" marker-end="url(#a-orange)"/>
+  <text x="150" y="165" class="lbl" fill="#ea580c">bresp</text>
+  <rect x="180" y="85" width="200" height="105" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="280" y="110" text-anchor="middle" class="h">Monitor: write txn</text>
+  <text x="280" y="132" text-anchor="middle" class="t">addr, wdata, wstrb, bresp</text>
+  <text x="280" y="148" text-anchor="middle" class="t">published at the</text>
+  <text x="280" y="164" text-anchor="middle" class="t">B handshake</text>
+
+  <path d="M380,137 L438,137" class="grey" marker-end="url(#a-grey)"/>
+  <rect x="440" y="85" width="200" height="105" rx="6" fill="#f3f4f6" stroke="#4b5563"/>
+  <text x="540" y="110" text-anchor="middle" class="h">In range and OKAY</text>
+  <text x="540" y="132" text-anchor="middle" class="t">merge wdata into</text>
+  <text x="540" y="148" text-anchor="middle" class="t">shadow[addr], byte by</text>
+  <text x="540" y="164" text-anchor="middle" class="t">byte where wstrb = 1</text>
+
+  <path d="M640,130 L698,130" class="grey" marker-end="url(#a-grey)"/>
+  <rect x="700" y="95" width="170" height="70" rx="6" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="785" y="120" text-anchor="middle" class="h">shadow[ ]</text>
+  <text x="785" y="138" text-anchor="middle" class="t">one per register</text>
+  <text x="785" y="154" text-anchor="middle" class="t">(reset value 0)</text>
+
+  <!-- response check, both directions -->
+  <rect x="440" y="205" width="200" height="55" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="540" y="228" text-anchor="middle" class="h">check response</text>
+  <text x="540" y="246" text-anchor="middle" class="t">in range OKAY, else SLVERR</text>
+  <path d="M410,137 L410,225 L438,225" class="grey" marker-end="url(#a-grey)"/>
+  <path d="M410,315 L410,240 L438,240" class="grey" marker-end="url(#a-grey)"/>
+
+  <!-- read path -->
+  <path d="M120,272 L178,272" class="blue" marker-end="url(#a-blue)"/>
+  <path d="M120,332 L178,332" class="orange" marker-end="url(#a-orange)"/>
+  <text x="150" y="325" class="lbl" fill="#ea580c">rdata</text>
+  <rect x="180" y="250" width="200" height="105" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="280" y="275" text-anchor="middle" class="h">Monitor: read txn</text>
+  <text x="280" y="297" text-anchor="middle" class="t">addr, rdata, rresp</text>
+  <text x="280" y="313" text-anchor="middle" class="t">published at the</text>
+  <text x="280" y="329" text-anchor="middle" class="t">R handshake</text>
+  <path d="M380,315 L698,315" class="grey" marker-end="url(#a-grey)"/>
+  <text x="540" y="308" text-anchor="middle" class="lbl" fill="#4b5563">in range and OKAY: rdata</text>
+
+  <path d="M785,165 L785,278" class="grey" marker-end="url(#a-grey)"/>
+  <text x="793" y="215" class="lbl" fill="#4b5563">shadow[addr]</text>
+  <text x="793" y="229" class="lbl" fill="#4b5563">when the read arrives</text>
+
+  <rect x="700" y="280" width="170" height="70" rx="6" fill="#fee2e2" stroke="#dc2626" stroke-width="1.8"/>
+  <text x="785" y="306" text-anchor="middle" class="h">compare</text>
+  <text x="785" y="326" text-anchor="middle" class="t">rdata == shadow[addr]</text>
+
+  <!-- footnote + legend -->
+  <text x="20" y="385" class="t">The driver sends one transaction at a time, so a read never overlaps a write: every in-range read is checked.</text>
+  <line x1="20" y1="418" x2="55" y2="418" class="blue"/>
+  <text x="62" y="422" class="t">master side (driven by the driver)</text>
+  <line x1="290" y1="418" x2="325" y2="418" class="orange"/>
+  <text x="332" y="422" class="t">DUT outputs</text>
+  <line x1="450" y1="418" x2="485" y2="418" class="grey"/>
+  <text x="492" y="422" class="t">testbench-internal</text>
+</svg>

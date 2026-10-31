@@ -3,7 +3,7 @@
 ---
 ## Introduction
 
-A verification environment for a simplified AXI4-Lite slave, combining a constrained-random UVM testbench with a SystemVerilog Assertions (SVA) formal environment. AXI4-Lite is AMBA's lightweight memory-mapped register interface defined in the *AMBA AXI and ACE Protocol Specification* (ARM IHI 0022E), available from ARM. The DUT's concrete behavior is documented in [`spec/axi4lite_slave_spec.md`](spec/axi4lite_slave_spec.md).
+A verification environment for a simplified AXI4-Lite slave, combining a constrained-random UVM testbench with a SystemVerilog Assertions (SVA) formal environment. AXI4-Lite is AMBA's lightweight memory-mapped register interface defined in the *AMBA AXI and ACE Protocol Specification* (ARM IHI 0022E), available from ARM. The DUT's concrete behavior is documented in [`docs/axi4lite_slave_spec.md`](docs/axi4lite_slave_spec.md).
 
 
 ---
@@ -40,8 +40,14 @@ axi4lite_uvm/
 │   ├── axi4lite_covers.sv          -- `cover property`: handshake/response/strobe, multi-transaction and mid-transaction-reset reachability
 │   ├── axi4lite_formal_driver.sv   -- legal-master constrained-random driver for simulation-based checking
 │   └── formal_tb.sv                -- top-level formal environment, wires the above + the DUT together
-├── spec/
-│   └── axi4lite_slave_spec.md      -- this DUT's concrete behavior, traced back to ARM IHI 0022E rules
+├── docs/
+│   ├── axi4lite_slave_spec.md      -- this DUT's concrete behavior, traced back to ARM IHI 0022E rules
+│   └── images/
+│       ├── formal/
+│       │   └── blackbox_data_flow.svg   -- data flow of axi4lite_blackbox_data.sv's end-to-end check
+│       └── uvm/
+│           ├── uvm_env_structure.svg    -- test / env / agent hierarchy and its connections to the DUT
+│           └── scoreboard_data_flow.svg -- data flow of the scoreboard's shadow-register check
 ├── sim/
 │   ├── Makefile                    -- QuestaSim + Questa Formal run targets for both tb/ (UVM) and formal/
 │   ├── formal_questa.do            -- qverify batch script for the real formal-proof flow (see below)
