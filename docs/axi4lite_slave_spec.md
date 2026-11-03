@@ -15,7 +15,7 @@
 | `DATA_WIDTH` | 32      | Data bus width. (must be fixed at either 32-bit or 64-bit) |
 | `NUM_REGS`   | 16      | Depth of the internal word-addressed register file         |
 
-Internal word index: `word_idx = addr[ADDR_WIDTH-1:2]` (i.e. addresses are word-aligned; the two LSBs select the byte within a 32-bit word and are not used to index the register file).
+Internal word index: `word_idx = addr[ADDR_WIDTH-1:ADDR_LSB]` with `ADDR_LSB = $clog2(DATA_WIDTH/8)`, i.e. 2 at 32-bit and 3 at 64-bit (addresses are word-aligned; the `ADDR_LSB` low bits select the byte within a data word and are not used to index the register file).
 
 ---
 
@@ -107,7 +107,7 @@ This section specifies the concrete behavior implemented in `axi4lite_slave.sv` 
 - `awready = !aw_hs_done`, `wready = !w_hs_done` — both default HIGH out of reset.
 - `AWVALID`/`AWREADY` and `WVALID`/`WREADY` handshakes are accepted independently and in either order. Whichever completes first is latched (`awaddr_latched`, `wdata_latched`/`wstrb_latched`) and its `*_hs_done` flag set; `awready`/`wready` then deassert (drop to 0) until the write actually fires, so a second AW or W beat cannot be accepted while one half is still pending.
 - Once both `aw_hs_done` and `w_hs_done` are set (and no response is currently pending, `!bvalid`), the slave fires the write on the next clock edge:
-  - If `word_idx = awaddr_latched[ADDR_WIDTH-1:2] < NUM_REGS`: for each byte `b` where `wstrb_latched[b]` is set, `regfile[word_idx][b*8+:8] <= wdata_latched[b*8+:8]`; `bresp <= OKAY`.
+  - If `word_idx = awaddr_latched[ADDR_WIDTH-1:ADDR_LSB] < NUM_REGS`: for each byte `b` where `wstrb_latched[b]` is set, `regfile[word_idx][b*8+:8] <= wdata_latched[b*8+:8]`; `bresp <= OKAY`.
   - Else: no register is written; `bresp <= SLVERR`.
   - `bvalid` is asserted the same cycle `bresp` is computed, and `aw_hs_done`/`w_hs_done` are cleared, re-opening `awready`/`wready` for the next transaction.
 - `bvalid` is deasserted the cycle after `bvalid && bready` (i.e. after the master accepts the response).
@@ -116,7 +116,7 @@ This section specifies the concrete behavior implemented in `axi4lite_slave.sv` 
 ### 5.2 Read channel
 
 - `arready = !rvalid` — HIGH by default out of reset; deasserts once `rvalid` is set and stays low until the master accepts the read data (`rvalid && rready`).
-- On `arvalid && arready`: `word_idx = araddr[ADDR_WIDTH-1:2]`.
+- On `arvalid && arready`: `word_idx = araddr[ADDR_WIDTH-1:ADDR_LSB]`.
   - If `word_idx < NUM_REGS`: `rdata <= regfile[word_idx]`, `rresp <= OKAY`.
   - Else: `rdata <= '0`, `rresp <= SLVERR`.
   - `rvalid` is asserted the same cycle.
@@ -134,6 +134,18 @@ This section specifies the concrete behavior implemented in `axi4lite_slave.sv` 
 
 - Write to `word_idx >= NUM_REGS` $\to$ `bresp = SLVERR`, register file unmodified.
 - Read from `word_idx >= NUM_REGS` $\to$ `rresp = SLVERR`, `rdata = 0`.
+
+### 5.5 Read/write ordering
+
+- **AXI-level guarantee:** a read whose AR handshake comes after the B handshake of an in-range (OKAY) write
+  returns that write's data merged by WSTRB, unless another write to the same register takes effect in between.
+  This is the rule that survives any RTL change.
+- **DUT rule (this implementation):** a write takes effect on the clock edge that raises `bvalid` (§5.1). A read
+  returns the register value from before its AR handshake edge. So a read whose AR handshake is on the same edge
+  the write fires returns the **old** value. A read whose AR handshake is on any later edge returns the **new**
+  value, even before the B handshake.
+- BVALID is low for at least one cycle between two writes (a fire needs `!bvalid`), so each BVALID rise belongs to
+  exactly one write.
 
 
 ---

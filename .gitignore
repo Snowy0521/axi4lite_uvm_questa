@@ -60,6 +60,3 @@ vsim.dbg
 vish_stacktrace.vstf
 # empty scratch files Questa drops on startup, named etch<pid>
 etch[0-9]*
-
-# doc
-doc/*.md
