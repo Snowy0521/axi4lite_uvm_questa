@@ -4,7 +4,7 @@
 // All `assume property` constraints for axi4lite_slave's formal environment
 //
 // No assert in the blackbox_*/whitebox_* checkers depends on these: every one still
-// proves with this module compiled out (sim/Makefile's
+// proves with this module compiled out (the Makefile's
 // formal-verify-noassume), i.e. the DUT is correct against any master,
 // legal or not. They keep cover witnesses and flow #2's simulation
 // traffic protocol-legal.

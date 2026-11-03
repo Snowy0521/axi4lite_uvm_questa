@@ -26,13 +26,13 @@
 //      here, not just clk/reset -- its $urandom-based next-state logic
 //      isn't proof-friendly and would artificially restrict the state
 //      space a real formal engine should explore exhaustively.) See
-//      sim/formal_questa.do for the qverify script that sets this
+//      formal/run_formal.tcl for the qverify script that sets this
 //      define.
 //   2. Bounded/simulation-based assertion checking (QuestaSim, or any
 //      simulator run as a smoke check before a real formal tool is
 //      available): compile without the define (the default), and this
 //      becomes a self-contained, randomly-driven testbench that still
-//      exercises every assume/assert pair -- see sim/Makefile's `formal`
+//      exercises every assume/assert pair -- see the Makefile's `formal`
 //      target.
 // ============================================================================
 
@@ -56,7 +56,7 @@ module formal_tb
 `endif
 
   localparam int ADDR_WIDTH = 8;
-  // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (sim/Makefile's
+  // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (the Makefile's
   // DATA_WIDTH variable); 32 if not given.
 `ifndef AXI4LITE_DATA_WIDTH
   `define AXI4LITE_DATA_WIDTH 32
@@ -147,7 +147,7 @@ module formal_tb
 
   // ------------------------------------------------------------------
   // Environment constraints. FORMAL_NO_ASSUMPTIONS compiles them out
-  // (sim/Makefile's formal-verify-noassume) to check which proofs
+  // (the Makefile's formal-verify-noassume) to check which proofs
   // actually depend on them.
   // ------------------------------------------------------------------
 `ifndef FORMAL_NO_ASSUMPTIONS

@@ -93,10 +93,13 @@ module tb_top;
     run_test("axi4lite_smoke_test");
   end
 
-  // optional: dump waves if the simulator supports it
+  // Waves only on request (+vcd, e.g. make uvm PLUSARGS=+vcd): a full-hierarchy
+  // VCD on every run costs time on every regression seed.
   initial begin
-    $dumpfile("tb_top.vcd");
-    $dumpvars(0, tb_top);
+    if ($test$plusargs("vcd")) begin
+      $dumpfile("tb_top.vcd");
+      $dumpvars(0, tb_top);
+    end
   end
 
 endmodule

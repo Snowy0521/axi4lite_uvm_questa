@@ -1,27 +1,31 @@
 # ============================================================================
-# formal_questa.do -- Questa Formal Verification (qverify) batch script.
+# run_formal.tcl -- Questa Formal Verification (qverify) batch script.
 #
-# Run via:  cd sim && make formal-verify
-#
-# Only supported from sim/ (paths below are relative to that directory,
-# matching every other target in sim/Makefile)
+# Run via `make formal-verify` (or formal-verify-all / formal-verify-noassume)
+# from the repo root: the file lists are repo-root-relative, the Makefile sets
+# MODELSIM so vmap writes modelsim.ini into build/, and it passes
+# `-od build/formal`, so every qverify output (logs, .rpt files, propcheck.db,
+# .qverify/, qverify_cmds.tcl) lands there.
 #
 # Compiles the DUT plus formal/'s SVA files (assumptions/assertions/covers)
 # ============================================================================
 
 onerror {exit 1}
 
-set RTL_DIR    "../rtl"
-set FORMAL_DIR "../formal"
+if {![info exists ::env(MODELSIM)]} {
+    puts "run_formal.tcl: MODELSIM is not set. Run 'make formal-verify' from the repo root."
+    exit 1
+}
 
 # Own library, separate from the simulation flows' questa_work: the two
 # compile the same files with different defines (QUESTA_FORMAL etc.),
 # which in one shared library overwrites each other's units (vlog-13233).
-# sim/Makefile's `lib` target re-maps work to questa_work for simulation.
-vlib formal_work
-vmap work formal_work
+# The Makefile's `lib` target re-maps work to questa_work for simulation.
+# Absolute path in modelsim.ini, so it resolves from any directory.
+vlib build/formal_work
+vmap work [pwd]/build/formal_work
 
-# Environment knobs (set by sim/Makefile):
+# Environment knobs (set by the Makefile):
 #   DATA_WIDTH=32|64        -- formal_tb's data width (default 32)
 #   NO_ASSUME=1             -- compile out formal_tb's assumptions instance
 #                              (make formal-verify-noassume), to check which
@@ -42,19 +46,10 @@ if {[info exists ::env(NO_ASSUME)] && $::env(NO_ASSUME)} {
     lappend EXTRA_DEFINES +define+FORMAL_NO_ASSUMPTIONS
     append REPORT_SUFFIX "_noassume"
 }
-set REPORT "formal_report$REPORT_SUFFIX.txt"
+set REPORT "[pwd]/build/formal/formal_report$REPORT_SUFFIX.txt"
 
 vlog -sv -timescale 1ns/1ps +define+QUESTA_FORMAL {*}$EXTRA_DEFINES \
-     +incdir+$RTL_DIR \
-     $RTL_DIR/axi4lite_types_pkg.sv \
-     $RTL_DIR/axi4lite_slave.sv \
-     $FORMAL_DIR/axi4lite_assumptions.sv \
-     $FORMAL_DIR/axi4lite_fifo_model.sv \
-     $FORMAL_DIR/axi4lite_blackbox_protocol.sv \
-     $FORMAL_DIR/axi4lite_blackbox_data.sv \
-     $FORMAL_DIR/axi4lite_whitebox_regfile.sv \
-     $FORMAL_DIR/axi4lite_covers.sv \
-     $FORMAL_DIR/formal_tb.sv
+     -f rtl/rtl.f -f formal/formal.f
 
 # Elaborate the design for formal analysis.
 formal compile -d formal_tb

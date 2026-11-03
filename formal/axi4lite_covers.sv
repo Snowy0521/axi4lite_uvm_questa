@@ -188,7 +188,7 @@ module axi4lite_covers #(
   // ***** Reset asserted mid-transaction ***************************************
   // ****************************************************************************
   // Requires rst_n to be free after init (formal verify -auto_constraint_off
-  // in sim/formal_questa.do). `disable iff (1'b0)` for the same reason as
+  // in formal/run_formal.tcl). `disable iff (1'b0)` for the same reason as
   // a_bvalid_low_in_reset: the default disable would mask the reset cycle.
 
   // Reset lands between the AW and W handshakes of a write.

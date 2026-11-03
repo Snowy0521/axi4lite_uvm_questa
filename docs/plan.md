@@ -128,8 +128,9 @@ Any change to this table is a deliberate edit in the same commit as the property
 
 `qverify -c -do` on the DUT plus `formal/` with `+define+QUESTA_FORMAL`, then `formal compile -d formal_tb`, then
 `formal verify -auto_constraint_off`. Knobs: `DATA_WIDTH=32|64`, `NO_ASSUME=1` (compiles out the assumptions
-instance). Today: `sim/formal_questa.do`, run from `sim/` (done). Planned (step 2): `formal/run_formal.tcl` reads
-`formal/formal.f`, writes everything to `build/formal/`, and runs from the repo root.
+instance). Script: `formal/run_formal.tcl` (done), started by `make formal-verify` as
+`qverify -c -od build/formal -do formal/run_formal.tcl` from the repo root. It compiles `-f rtl/rtl.f -f formal/formal.f`
+into its own `build/formal_work` library; every qverify output and `formal_report*.txt` land in `build/formal/`.
 
 **Self-check (planned, step 3):** after each run, parse the report. Pass only if falsified = 0, inconclusive = 0,
 uncovered = 0, and proven and covered equal the row of §2.7 for that configuration (kept machine-readable in
@@ -142,7 +143,11 @@ legal master under vsim. This is not a proof.
 
 **Mid-run reset (planned, step 4):** today reset happens only at time 0 (`formal_tb.sv:106-110`), with the same
 time-0 race as `tb_top` (`rst_n = 0` in an `initial`, §3.3). In the same edit the power-on part becomes
-`rst_n = 1'b1; #1 rst_n = 1'b0;` inside the simulation-only `initial`. A declaration initialiser is not possible
+`rst_n = 1'b1; #1 rst_n = 1'b0; repeat (3) @(posedge clk); @(negedge clk) rst_n = 1'b1;` inside the
+simulation-only `initial`. The release moves to a negedge as well: today `repeat (3) @(posedge clk); rst_n = 1;`
+releases on the posedge itself, so whether the DUT takes its reset branch at that edge, and whether that edge's
+`default disable iff (!rst_n)` attempts are disabled, depends on process order. The power-on reset stays 3
+posedges long, and no clock edge sees `rst_n` change. A declaration initialiser is not possible
 there: `rst_n` is declared through `` `FTB_FREE`` (`formal_tb.sv:71`), which is an `input` under `QUESTA_FORMAL`.
 The X → 1 at time 0 is not a negedge, and the 1 → 0 at 1 ns is a real one, after every process has started. A rare random
 mid-run reset is added to that simulation-only reset block (inside the existing non-`QUESTA_FORMAL` code), **not**
@@ -204,13 +209,13 @@ Planned field (step 5c): `stamp`, the sample index of the event that orders the 
     bind dut axi4lite_whitebox_regfile  #(...) u_wb_regfile  (..., .regfile(regfile));
   `endif
   ```
-  Reason: `make simple`, `make uvm` and `make formal` share one library (`questa_work`), and `formal_tb` already
+  Reason: `make simple`, `make uvm` and `make formal` share one library (`build/questa_work`), and `formal_tb` already
   instantiates the same checkers explicitly. A module-type bind on `axi4lite_slave` would also reach the DUT of
   `formal_tb` / `tb_simple`, doubling the checkers there and changing their counts. Binding the instance `dut`
   scopes the checkers to `tb_top.dut`, and the port names (including `regfile`) still resolve in the DUT scope.
   The instance names are the same as in `formal_tb` (`u_assumptions`, `u_bb_protocol`, `u_bb_data`,
   `u_wb_regfile`), and they become children of `/tb_top/dut`. Two things are unaffected. `wave_uvm.do` only
-  references `tb_top`, `intf` and `dut` signals. The code-coverage summary awk (`sim/Makefile:195`) matches the
+  references `tb_top`, `intf` and `dut` signals. The code-coverage summary awk (`Makefile:213`) matches the
   exact instance `/tb_top/dut`, not its children, and the checkers are not compiled with `+cover` anyway.
   `axi4lite_covers` is not bound: cover results are formal sign-off, not a UVM goal. `axi4lite_blackbox_data`
   does carry the 3 e2e covers (`cp_e2e_*`), so they land in the UVM UCDBs as cover directives. They are
@@ -220,7 +225,7 @@ Planned field (step 5c): `stamp`, the sample index of the event that orders the 
   A failing property is a `** Error`, not a `UVM_ERROR`, and the regression counts it (§3.7). `UVM_CHECKERS=no`
   (which sets `+define+NO_UVM_CHECKERS`) builds without them; mutation scoring uses it to measure the UVM bench
   alone (§4).
-- **VCD dump (planned, step 2):** only with `+vcd`; today `tb_top.sv:97-100` dumps on every run.
+- **VCD dump (done):** only with `+vcd` (`make uvm PLUSARGS=+vcd`), into `build/sim/tb_top.vcd`.
 
 ### 3.3 Reset in the middle of a test (planned, step 5b)
 
@@ -529,7 +534,7 @@ by a row of its own.
 
 ## 5. Stretch goals
 
-1. **UVM RAL.** Note: the UVM library is compiled with `+define+UVM_NO_DPI` (`sim/Makefile:129`). RAL backdoor
+1. **UVM RAL.** Note: the UVM library is compiled with `+define+UVM_NO_DPI` (`Makefile:150`). RAL backdoor
    access needs the DPI HDL functions, so it means dropping `UVM_NO_DPI` or using Questa's precompiled UVM.
 2. **Pipelined driver / monitor**, more than one request in flight per channel. This would close the four condition
    terms of §3.8 in simulation and turn M14 / M15 into UVM catches.
@@ -548,10 +553,10 @@ Questa can be traced to one change.
 | Step | Work | Done when |
 |---|---|---|
 | 1 | This plan; spec §1 / §5.5 | Plan and spec consistent with the code (counts, line references, rules) |
-| 2 | Structure: root `Makefile`, `rtl.f` / `tb.f` / `formal.f`, outputs in `build/`, `formal/run_formal.tcl`, VCD behind `+vcd`, `UVM_HOME` from `vsim`, `.gitignore`, README layout | Questa checklist passes unchanged: `simple`; `uvm` (smoke); `uvm-sweep TEST=axi4lite_random_test N=3`; `formal-sweep N=3`; `formal-verify-all` 57/57, 65/65, 43/43; `formal-verify-noassume` all proven; `git status` clean after `make clean` |
+| 2 | Structure: root `Makefile`, `rtl.f` / `tb.f` / `formal.f`, outputs in `build/`, `formal/run_formal.tcl`, VCD behind `+vcd`, `QUESTA_UVM_HOME` from the `vsim` on PATH (not `UVM_HOME`), `.gitignore`, README layout (done; Questa checklist pending) | Questa checklist passes unchanged: `simple`; `uvm` (smoke); `uvm-sweep TEST=axi4lite_random_test N=3`; `formal-sweep N=3`; `formal-verify-all` 57/57, 65/65, 43/43; `formal-verify-noassume` all proven; `git status` clean after `make clean` |
 | 3 | `make lint` (Verilator `-Wall` on the RTL with the two `WIDTHEXPAND` fixed and the two `UNUSEDSIGNAL` waived by comment; slang over RTL + `formal/`, both defines, both widths, `--timescale 1ns/1ps`), `make check` (lint + Verilator smoke on `*** TEST PASSED ***`), formal self-check | `make check` passes locally; self-check passes on all four configurations |
-| 4 | `scripts/questa_log.py` (shared run classifier); rare mid-run reset in `formal_tb`'s simulation reset block; mutations M01–M20 (21 patches: M09a / M09b) on the current testbench | Baseline table: every mutant scored per flow and compared with the "expected at baseline" column (§4); clean design passes every flow first; `formal-sweep` still passes with the mid-run reset |
-| 5a | `scripts/regress.py` (reusing `questa_log.py`), monitor `FINGERPRINT`, monitor X check (`MON_X`), master-signal initialisers in the interface, `tb_top` power-on reset as `rst_n = 1'b1` / `#1` drop, formal checkers bound into `tb_top.dut` (instance bind, `NO_UVM_CHECKERS` switch). No new tests | Existing tests pass on 20 seeds in both widths with the bound checkers silent, **including no assume firing at power-on**; no `MON_X`; coverage numbers unchanged; distinct fingerprints for the random tests |
+| 4 | `scripts/questa_log.py` (shared run classifier); `formal_tb`'s simulation reset in the `#1` drop / negedge release form, plus a rare mid-run reset; mutations M01–M20 (21 patches: M09a / M09b) on the current testbench | Baseline table: every mutant scored per flow and compared with the "expected at baseline" column (§4); clean design passes every flow first; `formal-sweep` still passes with the mid-run reset |
+| 5a | `scripts/regress.py` (reusing `questa_log.py`), monitor `FINGERPRINT`, monitor X check (`MON_X`), master-signal initialisers in the interface, `tb_top` power-on reset as `rst_n = 1'b1` / `#1` drop / release at a negedge after 3 posedges, formal checkers bound into `tb_top.dut` (instance bind, `NO_UVM_CHECKERS` switch). No new tests | Existing tests pass on 20 seeds in both widths with the bound checkers silent, **including no assume firing at power-on**; no `MON_X`; coverage numbers unchanged; distinct fingerprints for the random tests |
 | 5b | Reset: `rst_n` moved into the interface (`= 1'b1`, power-on drop at `#1`), `apply_reset` / `reset_ctrl`, `clear_master_valids`, driver kill path and `wait_reset_release`, monitor abort + `reset_ap`, scoreboard clear, `cp_reset_phase`, `axi4lite_reset_test` | Reset test and existing tests pass on 20 seeds in both widths; every `cp_reset_phase` bin hit, `idle` including resets that land while the driver is blocked in `get_next_item`; no `m_*valid_low_in_reset` firing; M09b killed by `axi4lite_reset_test` |
 | 5c | Concurrency: `drv_mode`, `wr_sqr` / `rd_sqr` / `rd_item_port`, `start_delay`, monitor `cyc` / `stamp` / `commit_ap` (write commits), scoreboard `visible()` + full per-register history (the only write path, all modes; cleared by `clear_on_reset()`), `cp_rw_overlap`, formal covers `cp_rw_fire_before_ar` / `cp_rw_fire_on_ar_edge` (`expected_counts.txt` 43 → 45), `axi4lite_rw_concurrency_test`, `axi4lite_oor_sweep_test`; then the directed tests the step 4 survivors call for | Concurrency test closes both boundary bins; **the existing random / unaligned sweeps still give 20 / 20 seeds and 100% merged coverage in both widths** (the regression for the new scoreboard write path); formal self-check 45 covers |
 | 6 | Re-run mutations, README results | Table updated; every survivor explained (expected survivor, or equivalent); M09a, M09b and M19 now killed in simulation |

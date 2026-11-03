@@ -1,62 +1,53 @@
-# Verilator
-obj_dir/
+# Every Makefile target writes its outputs to build/ (libraries, build/sim/,
+# build/formal/, build/cov/; see the Makefile header). The entries below build/
+# are a fallback for a Questa tool started by hand from the repo root.
+build/
+
+# QuestaSim (vlib / vlog / vopt / vsim) outputs
+questa_work/
+formal_work/
+work/
+*_opt
+transcript
+*.wlf
+modelsim.ini
+*.ses
+tr_db.log
+vsim.dbg
+vish_stacktrace.vstf
+
+# Questa Formal (qverify / PropCheck) outputs
+.qverify/
+propcheck.db/
+*.rpt
+formal_report*.txt
+qverify_cmds.tcl
+qverify_ui_cmds.tcl
+
+# Coverage (vcover)
+*.ucdb
+
+# Questa Visualizer / startup scratch (empty files named etch<pid>)
+*.qwdb
+qwave.db
+.visualizer/
+visualizer.log
+sysinfo.log
+etch[0-9]*
+
+# Waves and logs
 *.vcd
 *.fst
 *.log
 
-# Simulation outputs
-simv
-simv.daidir/
-csrc/
-*.key
+# Local open-source lint / smoke (verilator, iverilog)
+obj_dir/
+*.vvp
 
-# Editor / OS
-.vscode/
-.DS_Store
-
-# Python
+# Python / editor / OS
 __pycache__/
 *.pyc
-.*.swp
-
-# Vim
+.vscode/
+.DS_Store
 *.swp
 *.swo
-
-# Verilator generated files
-sim/obj_dir/
-sim/obj_dir_*/
-sim/*.dat
-
-# QuestaSim / Questa Formal (qverify) generated files
-sim/questa_work/
-sim/formal_work/
-sim/work/
-sim/*_opt
-sim/transcript
-sim/*.wlf
-sim/modelsim.ini
-sim/*.ses
-# qverify (formal-verify / formal_questa.do) generated files -- confirmed
-# against a real run, not guessed:
-sim/.qverify/
-sim/propcheck.db/
-sim/*.rpt
-sim/formal_report*.txt
-sim/qverify_cmds.tcl
-
-# Coverage (make formal-coverage -> vsim `coverage save` + vcover merge)
-sim/formal_cov_ucdb/
-sim/uvm_cov_ucdb/
-*.ucdb
-
-# Questa Visualizer -- the GUI debug environment behind both vsim's wave
-*.qwdb
-qwave.db
-.visualizer/
-qverify_ui_cmds.tcl
-sysinfo.log
-vsim.dbg
-vish_stacktrace.vstf
-# empty scratch files Questa drops on startup, named etch<pid>
-etch[0-9]*
