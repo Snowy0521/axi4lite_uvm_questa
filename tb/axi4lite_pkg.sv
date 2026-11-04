@@ -7,7 +7,7 @@
 
 package axi4lite_pkg;
 
-  // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (sim/Makefile's
+  // 32 or 64 -- set via +define+AXI4LITE_DATA_WIDTH=<n> (the Makefile's
   // DATA_WIDTH variable); 32 if not given.
 `ifndef AXI4LITE_DATA_WIDTH
   `define AXI4LITE_DATA_WIDTH 32

@@ -6,10 +6,11 @@
 # NOT for batch/CI use -- deliberately doesn't `quit` at the end.
 #
 # Usage:
-#   cd sim && make uvm-build
-#   vsim -do wave_uvm.do tb_top_opt +UVM_TESTNAME=axi4lite_random_test -sv_seed 42 +UVM_VERBOSITY=UVM_LOW
+#   make uvm-build                       # from the repo root
+#   cd build/sim && MODELSIM=../modelsim.ini vsim -do ../../sim/wave_uvm.do tb_top_opt +UVM_TESTNAME=axi4lite_random_test -sv_seed 42 +UVM_VERBOSITY=UVM_LOW
 #
-# Run this by hand from sim/ (so ./questa_work resolves), in a shell with a
+# Run this by hand from build/sim/ (MODELSIM points vsim at the library map
+# the Makefile wrote; its scratch files then stay in build/), in a shell with a
 # working $DISPLAY or in the Questa Transcript -- not via a make target.
 # Keep the command on one line: a trailing `\` isn't a line continuation
 # in the Transcript and ends up inside the next argument.

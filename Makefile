@@ -3,6 +3,10 @@
 # (Siemens EDA). Builds the rtl/tb/formal sources with vlib/vlog/vopt/vsim
 # and adds a real formal-proof flow via `qverify'.
 #
+# Run every target from the repo root: the file lists (rtl/rtl.f, tb/tb.f,
+# formal/formal.f) hold repo-root-relative paths, and every tool output goes
+# to build/ (see "Outputs" below). `make clean` removes build/.
+#
 # Requires vlib/vlog/vopt/vsim/qverify on PATH (source Questa's setup
 # script first, e.g. add .../questasim/linux_x86_64 and
 # .../questa_static_formal/linux_x86_64/bin to PATH) and a valid license
@@ -16,7 +20,7 @@
 # (UVM_ERROR/UVM_FATAL counts) -- much cheaper than N full rebuilds:
 #   make uvm-sweep TEST=axi4lite_random_test N=20
 #
-# `formal` runs the ../formal/ assume/assert/cover environment (flow #2 in
+# `formal` runs the formal/ assume/assert/cover environment (flow #2 in
 # formal_tb.sv's header comment) under vsim -- bounded, randomly-driven
 # simulation, not exhaustive formal proof. SEED controls
 # axi4lite_formal_driver.sv's randomization for reproducibility:
@@ -24,9 +28,9 @@
 # `formal-sweep` builds once and sweeps seeds 1..N, same idea as uvm-sweep:
 #   make formal-sweep N=20
 #
-# `formal-verify` drives Questa's real formal-proof engine (`qverify`) over 
-# the same formal/ SVA files via sim/formal_questa.do, exhaustive property proof, 
-# not simulation.
+# `formal-verify` drives Questa's real formal-proof engine (`qverify`) over
+# the same formal/ SVA files via formal/run_formal.tcl, exhaustive property
+# proof, not simulation.
 #   make formal-verify                        # 32-bit (DATA_WIDTH default)
 #   make formal-verify DATA_WIDTH=64          # 64-bit
 #   make formal-verify-all                    # both
@@ -34,54 +38,67 @@
 # DATA_WIDTH (32 or 64, default 32) applies to every target -- UVM,
 # simple and formal alike:
 #   make uvm TEST=axi4lite_random_test DATA_WIDTH=64
+#
+# Waveforms: the UVM bench dumps tb_top.vcd only with PLUSARGS=+vcd
+# (into build/sim/). For curated GUI waves see sim/wave.do / sim/wave_uvm.do.
+#
+# Outputs, all under build/ (nothing is written to the repo root):
+#   build/modelsim.ini, build/questa_work/, build/formal_work/   libraries
+#   build/sim/        vsim runs here (transcript, *.wlf, tr_db.log, tb_top.vcd)
+#   build/formal/     qverify -od: logs, *.rpt, formal_report*.txt,
+#                     propcheck.db/, .qverify/, qverify_cmds.tcl
+#   build/cov/uvm/    uvm-sweep: seed_<n>.ucdb, merged.ucdb, merged_cvg.txt,
+#                     merged_code.txt, merge.log
+#   build/cov/formal/ formal-coverage scratch (removed at the end of the run)
 # ============================================================================
 
 TEST      ?= axi4lite_smoke_test
 SEED      ?= 42
 N         ?= 20
+PLUSARGS  ?=
 # uvm-sweep fails if the functional coverage merged over its passing seeds
 # is below COV_GOAL (%). 100 for the random and unaligned-address tests
 # (sign-off); the smoke test only reaches part of the model by design, so
 # it isn't held to it. One seed isn't expected to close the model alone.
 COV_GOAL  ?= $(if $(filter axi4lite_random_test axi4lite_unaligned_test,$(TEST)),100,0)
-RTL_DIR   := ../rtl
-TB_DIR    := ../tb
-FORMAL_DIR := ../formal
+
+RTL_F      := rtl/rtl.f
+TB_F       := tb/tb.f
+FORMAL_F   := formal/formal.f
+# The random legal master for flow #2 only; QUESTA_FORMAL compiles it out,
+# so it is not in formal.f (which is exactly what qverify compiles).
+FORMAL_DRV := formal/axi4lite_formal_driver.sv
+
+BUILD          := build
+SIM_DIR        := $(BUILD)/sim
+FORMAL_OUT     := $(BUILD)/formal
+UVM_COV_DIR    := $(BUILD)/cov/uvm
+FORMAL_COV_DIR := $(BUILD)/cov/formal
 
 # If $MODELSIM is set in your shell (some site installs export it globally,
 # pointing at the install tree's own modelsim.ini), every vlib/vlog/vmap/vsim
-# call ignores this directory's local modelsim.ini and tries to read/write
-# that global one instead 
-export MODELSIM := $(CURDIR)/modelsim.ini
+# call ignores a local modelsim.ini and tries to read/write that global one
+# instead. Pin it to build/ (absolute, so vsim finds it from build/sim/).
+export MODELSIM := $(CURDIR)/$(BUILD)/modelsim.ini
 
-UVM_HOME ?= /eda/Siemens/2024-25/RHELx86/QUESTA-CORE-PRIME_2024.3/questasim/verilog_src/uvm-1.2/src
-
-# axi4lite_types_pkg.sv must come first: the RTL, UVM package, tb_simple
-# and formal files all import it
-RTL_FILES := $(RTL_DIR)/axi4lite_types_pkg.sv \
-             $(RTL_DIR)/axi4lite_slave.sv
-
-# axi4lite_pkg.sv must come before axi4lite_if.sv: the interface's default
-# parameter values reference axi4lite_pkg::ADDR_WIDTH/DATA_WIDTH
-TB_FILES  := $(TB_DIR)/axi4lite_pkg.sv \
-             $(TB_DIR)/axi4lite_if.sv \
-             $(TB_DIR)/tb_top.sv
-FORMAL_FILES := $(FORMAL_DIR)/axi4lite_assumptions.sv \
-                $(FORMAL_DIR)/axi4lite_fifo_model.sv \
-                $(FORMAL_DIR)/axi4lite_blackbox_protocol.sv \
-                $(FORMAL_DIR)/axi4lite_blackbox_data.sv \
-                $(FORMAL_DIR)/axi4lite_whitebox_regfile.sv \
-                $(FORMAL_DIR)/axi4lite_covers.sv \
-                $(FORMAL_DIR)/axi4lite_formal_driver.sv \
-                $(FORMAL_DIR)/formal_tb.sv
+# UVM 1.2 shipped with the QuestaSim on PATH; override QUESTA_UVM_HOME (or
+# QUESTA_HOME) for another install. Deliberately not UVM_HOME: a shell may
+# export that for another simulator's UVM kit (e.g. 1800.2 for Verilator),
+# which must not leak into the Questa build. Checked only by uvm-build, so the
+# other targets don't need vsim to be on PATH for make to parse this file.
+VSIM_ON_PATH    := $(shell command -v vsim 2>/dev/null)
+QUESTA_HOME     ?= $(if $(VSIM_ON_PATH),$(abspath $(dir $(VSIM_ON_PATH))/..))
+QUESTA_UVM_HOME ?= $(if $(QUESTA_HOME),$(QUESTA_HOME)/verilog_src/uvm-1.2/src)
 
 VLIB    ?= vlib
+VMAP    ?= vmap
 VLOG    ?= vlog
 VOPT    ?= vopt
 VSIM    ?= vsim
+VCOVER  ?= vcover
 QVERIFY ?= qverify
 
-QUESTA_WORK   := questa_work
+QUESTA_WORK := $(BUILD)/questa_work
 
 # AXI data width, 32 or 64, for every flow: compiled in as
 # +define+AXI4LITE_DATA_WIDTH, read by tb/axi4lite_pkg.sv (UVM),
@@ -94,25 +111,25 @@ UVM_VERBOSITY ?= UVM_LOW
 
 # ============================================================================
 # Shared library setup -- just vlib+vmap, nothing UVM/test-specific about it.
+# Mapped with an absolute path, so vsim resolves it from build/sim/. Also
+# re-maps work after formal-verify, which maps it to build/formal_work.
 # ============================================================================
 lib:
+	mkdir -p $(SIM_DIR)
 	$(VLIB) $(QUESTA_WORK)
-	vmap work $(QUESTA_WORK)
+	$(VMAP) work $(CURDIR)/$(QUESTA_WORK)
 
 # ============================================================================
 # Plain (non-UVM) simple test -- tb_simple.sv drives axi4lite_slave
 # directly, no UVM agent/package involved.
 # ============================================================================
-SIMPLE_FILES := $(RTL_FILES) $(TB_DIR)/tb_simple.sv
-
 simple-build: lib
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
-	     +incdir+$(TB_DIR) +incdir+$(RTL_DIR) \
-	     $(SIMPLE_FILES)
+	     +incdir+tb -f $(RTL_F) tb/tb_simple.sv
 	$(VOPT) +acc tb_simple -o tb_simple_opt
 
 simple: simple-build
-	$(VSIM) -c -onfinish exit tb_simple_opt -do "run -all; quit -f"
+	cd $(SIM_DIR) && $(VSIM) -c -onfinish exit tb_simple_opt -do "run -all; quit -f"
 
 
 # ============================================================================
@@ -124,22 +141,29 @@ simple: simple-build
 # UCDB as the covergroups.
 CODE_COV ?= bcesf
 
-uvm-build: lib
+uvm-home-check:
+	@test -n "$(QUESTA_UVM_HOME)" || { echo "uvm-build: vsim is not on PATH; set QUESTA_UVM_HOME (or QUESTA_HOME)"; exit 1; }
+	@test -f "$(QUESTA_UVM_HOME)/uvm_pkg.sv" || { echo "uvm-build: $(QUESTA_UVM_HOME)/uvm_pkg.sv not found; set QUESTA_UVM_HOME"; exit 1; }
+
+# The library setup runs from the recipe, after uvm-home-check, rather than
+# as a second prerequisite: under make -j sibling prerequisites run in any
+# order, and the check must come first so a missing vsim gives its message,
+# not a vlib error.
+uvm-build: uvm-home-check
+	@$(MAKE) --no-print-directory lib
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
-	     +incdir+$(UVM_HOME) +define+UVM_NO_DPI \
-	     $(UVM_HOME)/uvm_pkg.sv
+	     +incdir+$(QUESTA_UVM_HOME) +define+UVM_NO_DPI \
+	     $(QUESTA_UVM_HOME)/uvm_pkg.sv
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) +cover=$(CODE_COV) \
-	     +incdir+$(RTL_DIR) \
-	     $(RTL_FILES)
+	     -f $(RTL_F)
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
-	     +incdir+$(UVM_HOME) +define+UVM_NO_DPI \
-	     +incdir+$(TB_DIR) +incdir+$(RTL_DIR) \
-	     $(TB_FILES)
+	     +incdir+$(QUESTA_UVM_HOME) +define+UVM_NO_DPI \
+	     +incdir+rtl -f $(TB_F)
 	$(VOPT) +acc tb_top -o tb_top_opt
 
 uvm: uvm-build
-	$(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
-	     +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish exit -do "run -all; quit -f"
+	cd $(SIM_DIR) && $(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
+	     +UVM_VERBOSITY=$(UVM_VERBOSITY) $(PLUSARGS) -onfinish exit -do "run -all; quit -f"
 
 # Each seed saves its coverage to $(UVM_COV_DIR)/seed_<n>.ucdb (same
 # -onfinish stop / coverage save pattern as formal-coverage); the passing
@@ -148,15 +172,14 @@ uvm: uvm-build
 # Code coverage of the DUT is reported too (merged_code.txt, summary
 # printed) but not gated: a code hole needs a reason -- missing stimulus,
 # missing plan item, or unreachable code -- before it can be waived.
-UVM_COV_DIR := uvm_cov_ucdb
-
+# vsim runs inside build/sim/, so the UCDB path it saves to is absolute.
 uvm-sweep: uvm-build
 	@rm -rf $(UVM_COV_DIR); mkdir -p $(UVM_COV_DIR); \
 	fail=0; \
 	for s in $$(seq 1 $(N)); do \
-	  out=$$($(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $$s \
-	         +UVM_VERBOSITY=$(UVM_VERBOSITY) -onfinish stop \
-	         -do "run -all; coverage save $(UVM_COV_DIR)/seed_$$s.ucdb; quit -f" 2>&1); \
+	  out=$$(cd $(SIM_DIR) && $(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $$s \
+	         +UVM_VERBOSITY=$(UVM_VERBOSITY) $(PLUSARGS) -onfinish stop \
+	         -do "run -all; coverage save $(CURDIR)/$(UVM_COV_DIR)/seed_$$s.ucdb; quit -f" 2>&1); \
 	  sfail=0; \
 	  errs=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_ERROR :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
 	  fatals=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_FATAL :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
@@ -212,17 +235,16 @@ uvm-sweep: uvm-build
 # ============================================================================
 formal-build: lib
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
-	     +incdir+$(RTL_DIR) \
-	     $(RTL_FILES) $(FORMAL_FILES)
+	     -f $(RTL_F) -f $(FORMAL_F) $(FORMAL_DRV)
 	$(VOPT) +acc formal_tb -o formal_tb_opt
 
 formal: formal-build
-	$(VSIM) -c -onfinish exit formal_tb_opt -sv_seed $(SEED) -do "run -all; quit -f"
+	cd $(SIM_DIR) && $(VSIM) -c -onfinish exit formal_tb_opt -sv_seed $(SEED) -do "run -all; quit -f"
 
 formal-sweep: formal-build
 	@fail=0; \
 	for s in $$(seq 1 $(N)); do \
-	  out=$$($(VSIM) -c -onfinish exit formal_tb_opt -sv_seed $$s -do "run -all; quit -f" 2>&1); \
+	  out=$$(cd $(SIM_DIR) && $(VSIM) -c -onfinish exit formal_tb_opt -sv_seed $$s -do "run -all; quit -f" 2>&1); \
 	  if echo "$$out" | grep -qiE '\*\* (Error|Fatal)'; then \
 	    echo "seed $$s: FAILED"; \
 	    echo "$$out" | grep -iE '\*\* (Error|Fatal)' | sed 's/^/    /'; \
@@ -239,22 +261,18 @@ formal-sweep: formal-build
 	fi
 
 # ============================================================================
-# formal-coverage: cp_* cover-point reachability across N seeds 
+# formal-coverage: cp_* cover-point reachability across N seeds
 # ============================================================================
-VCOVER ?= vcover
-FORMAL_COV_DIR := formal_cov_ucdb
-
 formal-build-cov: lib
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
-	     +incdir+$(RTL_DIR) \
-	     $(RTL_FILES) $(FORMAL_FILES)
+	     -f $(RTL_F) -f $(FORMAL_F) $(FORMAL_DRV)
 	$(VOPT) +acc formal_tb -o formal_tb_cov_opt
 
 formal-coverage: formal-build-cov
 	@rm -rf $(FORMAL_COV_DIR); mkdir -p $(FORMAL_COV_DIR)
 	@for s in $$(seq 1 $(N)); do \
-	  $(VSIM) -c -onfinish stop formal_tb_cov_opt -sv_seed $$s \
-	       -do "run -all; coverage save $(FORMAL_COV_DIR)/seed_$$s.ucdb; quit -f" \
+	  (cd $(SIM_DIR) && $(VSIM) -c -onfinish stop formal_tb_cov_opt -sv_seed $$s \
+	       -do "run -all; coverage save $(CURDIR)/$(FORMAL_COV_DIR)/seed_$$s.ucdb; quit -f") \
 	       > $(FORMAL_COV_DIR)/seed_$$s.log 2>&1; \
 	done
 	@$(VCOVER) merge $(FORMAL_COV_DIR)/merged.ucdb $(FORMAL_COV_DIR)/seed_*.ucdb > /dev/null
@@ -274,11 +292,12 @@ formal-coverage: formal-build-cov
 
 # ============================================================================
 # Real Questa Formal Verification (exhaustive property proof, flow #1) via
-# `qverify`, driven by sim/formal_questa.do.
+# `qverify`, driven by formal/run_formal.tcl. Report:
+# build/formal/formal_report.txt (32-bit) or formal_report_64.txt.
 # ============================================================================
-# Report: formal_report.txt (32-bit) or formal_report_64.txt.
 formal-verify:
-	DATA_WIDTH=$(DATA_WIDTH) $(QVERIFY) -c -do formal_questa.do
+	mkdir -p $(FORMAL_OUT)
+	DATA_WIDTH=$(DATA_WIDTH) $(QVERIFY) -c -od $(FORMAL_OUT) -do formal/run_formal.tcl
 
 # Prove both supported data widths back to back.
 formal-verify-all:
@@ -289,32 +308,14 @@ formal-verify-all:
 # no longer proves here depends on the assumptions. Writes
 # formal_report[_64]_noassume.txt; the normal report is untouched.
 formal-verify-noassume:
-	DATA_WIDTH=$(DATA_WIDTH) NO_ASSUME=1 $(QVERIFY) -c -do formal_questa.do
+	mkdir -p $(FORMAL_OUT)
+	DATA_WIDTH=$(DATA_WIDTH) NO_ASSUME=1 $(QVERIFY) -c -od $(FORMAL_OUT) -do formal/run_formal.tcl
 
-.PHONY: lib simple-build simple uvm-build uvm uvm-sweep \
+.PHONY: lib simple-build simple uvm-home-check uvm-build uvm uvm-sweep \
         formal-build formal formal-sweep formal-build-cov formal-coverage \
         formal-verify formal-verify-all formal-verify-noassume clean
 
-# Everything below is tool-generated and regenerable -- nothing here is a
-# source file, so the globs are safe: sim/ only ever holds Makefile,
-# formal_questa.do, wave.do and wave_uvm.do under version control.
+# Every output is under build/. The .gitignore fallback entries cover a tool
+# started by hand from the repo root.
 clean:
-# vlib/vmap/vopt output
-	rm -rf $(QUESTA_WORK) formal_work work tb_top_opt tb_simple_opt formal_tb_opt formal_tb_cov_opt
-	rm -rf modelsim.ini
-# vsim: console log, waveform databases, UVM transaction-recording log
-	rm -rf transcript *.wlf *.vcd *.fst tr_db.log vsim.dbg vish_stacktrace.vstf
-# vcover / coverage
-	rm -rf $(FORMAL_COV_DIR) $(UVM_COV_DIR) *.ucdb
-# qverify (formal-verify): work dirs, reports, replayed command log
-	rm -rf .qverify propcheck.db
-	rm -rf formal_design.rpt formal_property.rpt formal_settings.rpt \
-	       formal_verify.rpt formal_report*.txt
-	rm -rf formal_compile.log formal_verify.log qverify.log qverify_cmds.tcl
-# qverify/visualizer GUI leftovers: saved debug sessions (*.ses), the
-# Visualizer wave database, its per-user config dir and logs, and the
-# empty `etch<pid>` scratch files Questa drops on startup
-	rm -rf *.ses *.qwdb qwave.db .visualizer visualizer.log \
-	       qverify_ui.log qverify_ui_cmds.tcl sysinfo.log etch[0-9]*
-# catch-all for any remaining tool log
-	rm -rf *.log
+	rm -rf $(BUILD)

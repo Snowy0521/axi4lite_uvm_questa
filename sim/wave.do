@@ -2,12 +2,12 @@
 # wave.do -- interactive-only: add curated waves for tb_simple, then run.
 #
 # NOT for batch/CI use -- deliberately doesn't `quit` at the end, so you're
-# left sitting in the GUI looking at the result. See sim/Makefile's
+# left sitting in the GUI looking at the result. See the Makefile's
 # `-do "run -all; quit -f"` for the automated (headless, pass/fail) run.
 #
 # Usage:
-#   cd sim && make simple-build          # compile + vopt tb_simple_opt first
-#   vsim -do wave.do tb_simple_opt        # load design, add waves, run, done
+#   make simple-build                     # from the repo root: compile + vopt tb_simple_opt
+#   cd build/sim && MODELSIM=../modelsim.ini vsim -do ../../sim/wave.do tb_simple_opt
 # or, from inside an already-loaded GUI session's Transcript:
 #   do wave.do
 #

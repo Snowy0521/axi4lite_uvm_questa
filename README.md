@@ -3,7 +3,7 @@
 ---
 ## Introduction
 
-A verification environment for a simplified AXI4-Lite slave, combining a constrained-random UVM testbench with a SystemVerilog Assertions (SVA) formal environment. AXI4-Lite is AMBA's lightweight memory-mapped register interface defined in the *AMBA AXI and ACE Protocol Specification* (ARM IHI 0022E), available from ARM. The DUT's concrete behavior is documented in [`docs/axi4lite_slave_spec.md`](docs/axi4lite_slave_spec.md).
+A verification environment for a simplified AXI4-Lite slave, combining a constrained-random UVM testbench with a SystemVerilog Assertions (SVA) formal environment. AXI4-Lite is AMBA's lightweight memory-mapped register interface defined in the *AMBA AXI and ACE Protocol Specification* (ARM IHI 0022E), available from ARM. The DUT's concrete behavior is documented in [`docs/axi4lite_slave_spec.md`](docs/axi4lite_slave_spec.md), and how it is verified (formal and UVM sign-off criteria, coverage model, mutation testing, planned work) in [`docs/plan.md`](docs/plan.md).
 
 
 ---
@@ -11,11 +11,14 @@ A verification environment for a simplified AXI4-Lite slave, combining a constra
 ## Directory structure
 
 ```
-axi4lite_uvm/
+axi4lite_uvm_questa/
+├── Makefile                        -- every QuestaSim + Questa Formal target, run from the repo root
 ├── rtl/
+│   ├── rtl.f                       -- RTL file list (repo-root-relative)
 │   ├── axi4lite_types_pkg.sv       -- shared AXI protocol types (axi_resp_e), imported everywhere
 │   └── axi4lite_slave.sv           -- DUT: simple AXI4-Lite slave, NUM_REGS x 32/64-bit reg file
 ├── tb/
+│   ├── tb.f                        -- UVM testbench file list (the UVM library is compiled separately)
 │   ├── axi4lite_if.sv              -- interface with driver/monitor clocking blocks + modports
 │   ├── axi4lite_txn.sv             -- transaction (uvm_sequence_item)
 │   ├── axi4lite_sequencer.sv       -- uvm_sequencer typedef
@@ -32,6 +35,8 @@ axi4lite_uvm/
 │   ├── tb_top.sv                   -- clock/reset gen, DUT+interface instantiation, run_test()
 │   └── tb_simple.sv                -- plain (non-UVM) direct-drive sanity check
 ├── formal/
+│   ├── formal.f                    -- checker + formal_tb file list, exactly what qverify compiles
+│   ├── run_formal.tcl              -- qverify batch script for the real formal-proof flow (see below)
 │   ├── axi4lite_assumptions.sv     -- `assume property`: constrains the environment to legal masters (no proof depends on them)
 │   ├── axi4lite_blackbox_protocol.sv -- `assert property`, AXI ports only: handshake rules, response codes, X checks
 │   ├── axi4lite_blackbox_data.sv   -- `assert property`, AXI ports only: end-to-end data check (symbolic address)
@@ -42,6 +47,7 @@ axi4lite_uvm/
 │   └── formal_tb.sv                -- top-level formal environment, wires the above + the DUT together
 ├── docs/
 │   ├── axi4lite_slave_spec.md      -- this DUT's concrete behavior, traced back to ARM IHI 0022E rules
+│   ├── plan.md                     -- verification plan: sign-off criteria, coverage model, mutations, order of work
 │   └── images/
 │       ├── formal/
 │       │   └── blackbox_data_flow.svg   -- data flow of axi4lite_blackbox_data.sv's end-to-end check
@@ -49,10 +55,9 @@ axi4lite_uvm/
 │           ├── uvm_env_structure.svg    -- test / env / agent hierarchy and its connections to the DUT
 │           └── scoreboard_data_flow.svg -- data flow of the scoreboard's shadow-register check
 ├── sim/
-│   ├── Makefile                    -- QuestaSim + Questa Formal run targets for both tb/ (UVM) and formal/
-│   ├── formal_questa.do            -- qverify batch script for the real formal-proof flow (see below)
 │   ├── wave.do                     -- interactive-only GUI script: curated waves for tb_simple, then run
 │   └── wave_uvm.do                 -- interactive-only GUI script: curated waves for the UVM env (tb_top / intf / dut), then run
+├── build/                          -- every tool output (git-ignored; `make clean` removes it)
 └── README.md
 ```
 
@@ -75,21 +80,27 @@ Two different things live in `formal/`, and it's easy to conflate them:
 
 ## How to run
 
-All targets live in [`sim/Makefile`](sim/Makefile). Requires the relevant
-tool on `PATH`:
-- `uvm`/`uvm-sweep`/`simple` (any UVM or plain-simulation target): `$UVM_HOME`
-  pointed at a UVM class library -- defaults to QuestaSim 2024.3's own
-  bundled UVM 1.2 kit. **Note:** this is UVM 1.2 (Accellera), not the IEEE
+All targets live in the top-level [`Makefile`](Makefile) and run from the
+repo root. The file lists (`rtl/rtl.f`, `tb/tb.f`, `formal/formal.f`) hold
+repo-root-relative paths, and every output goes to `build/`: libraries and
+`modelsim.ini`, `build/sim/` (vsim's working directory: transcript, waves),
+`build/formal/` (everything qverify writes), `build/cov/` (UCDBs and coverage
+reports). Requires the relevant tool on `PATH`:
+- `uvm`/`uvm-sweep` (any UVM target): a UVM class library, by default
+  `$QUESTA_UVM_HOME` = the UVM 1.2 kit bundled with the QuestaSim found on
+  `PATH` (`<questasim>/verilog_src/uvm-1.2/src`); set `QUESTA_UVM_HOME` (or
+  `QUESTA_HOME`) to use another. `$UVM_HOME` is deliberately not read, so a
+  kit exported for another simulator doesn't leak into the Questa build. **Note:** this is UVM 1.2 (Accellera), not the IEEE
   1800.2-2020 kit `tb/` was originally written against -- close but
   not identical APIs; if `uvm-build` fails to compile, that mismatch is the
-  likely cause (the `formal`-family targets need no UVM at all).
+  likely cause (`simple` and the `formal`-family targets need no UVM at all).
 - All simulation targets: `vlib`/`vlog`/`vopt`/`vsim` (source Questa's setup
   script, e.g. `source <questasim_install>/settings.sh`, or add its `bin/`
   to `PATH`) and a valid license (`LM_LICENSE_FILE`).
 - `formal-verify`: `qverify` (Questa Formal 2024.3), plus the same license
-  setup. Driven by [`sim/formal_questa.do`](sim/formal_questa.do), compiled
-  into its own `sim/formal_work` library; the summary lands in
-  `sim/formal_report.txt` (`formal_report_64.txt` for the 64-bit run).
+  setup. Driven by [`formal/run_formal.tcl`](formal/run_formal.tcl), compiled
+  into its own `build/formal_work` library; the summary lands in
+  `build/formal/formal_report.txt` (`formal_report_64.txt` for the 64-bit run).
 
 `DATA_WIDTH` (32 by default, or 64) works on every target. It is compiled
 in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
@@ -97,7 +108,6 @@ in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
 switching width never means editing a source file.
 
 ```bash
-cd sim
 make simple                                    # plain (non-UVM) direct-drive sanity check via tb_simple.sv
 
 make uvm TEST=axi4lite_smoke_test              # directed write/read-back smoke test
@@ -105,6 +115,7 @@ make uvm TEST=axi4lite_random_test SEED=42     # constrained-random regression, 
 make uvm-sweep TEST=axi4lite_random_test N=20  # build once, run seeds 1..N, report which (if any) failed
 make uvm-sweep TEST=axi4lite_unaligned_test N=20  # random traffic with unaligned addresses
 make uvm TEST=axi4lite_random_test DATA_WIDTH=64  # any target: DATA_WIDTH=32 (default) or 64
+make uvm TEST=axi4lite_random_test PLUSARGS=+vcd  # also dump build/sim/tb_top.vcd (off by default)
 
 make formal SEED=7                             # assume/assert/cover env, bounded randomly-driven sim
 make formal-sweep N=50                         # same idea: build once, sweep seeds, report failures
@@ -114,7 +125,7 @@ make formal-verify DATA_WIDTH=64               # same, 64-bit configuration
 make formal-verify-all                         # both widths back to back
 make formal-verify-noassume                    # proof without assumptions: shows which proofs depend on them
 
-make clean
+make clean                                     # removes build/
 ```
 
 ## UVM testbench
@@ -185,7 +196,7 @@ make clean
 **Regression and sign-off.** `make uvm-sweep` compiles once and runs seeds
 1..N, parsing each run's UVM report summary. A seed with no summary
 (crash or hang) counts as a failure. Each seed saves its coverage to a
-UCDB; the passing seeds are merged with `vcover` (`sim/uvm_cov_ucdb/`,
+UCDB; the passing seeds are merged with `vcover` (`build/cov/uvm/`,
 `merged_cvg.txt` lists the bins still at zero). Sign-off, all three
 enforced by the script:
 
