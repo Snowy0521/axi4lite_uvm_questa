@@ -108,7 +108,7 @@ module axi4lite_slave
 
       // fire the actual write once both halves have arrived
       if (aw_hs_done && w_hs_done && !bvalid) begin // cycle N+1 
-        automatic int unsigned word_idx = awaddr_latched[ADDR_WIDTH-1: ADDR_LSB];
+        automatic int unsigned word_idx = 32'(awaddr_latched[ADDR_WIDTH-1:ADDR_LSB]);
         if (word_idx < NUM_REGS) begin
           for (int b = 0; b < DATA_WIDTH/8; b++) begin
             if (wstrb_latched[b])
@@ -141,7 +141,7 @@ module axi4lite_slave
       rresp  <= AXI_RESP_OKAY;
     end else begin
       if (arvalid && arready) begin
-        automatic int unsigned word_idx = araddr[ADDR_WIDTH-1 : ADDR_LSB];
+        automatic int unsigned word_idx = 32'(araddr[ADDR_WIDTH-1:ADDR_LSB]);
         if (word_idx < NUM_REGS) begin
           rdata <= regfile[word_idx];
           rresp <= AXI_RESP_OKAY;

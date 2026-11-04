@@ -15,6 +15,7 @@ axi4lite_uvm_questa/
 ├── Makefile                        -- every QuestaSim + Questa Formal target, run from the repo root
 ├── rtl/
 │   ├── rtl.f                       -- RTL file list (repo-root-relative)
+│   ├── axi4lite_slave.vlt          -- Verilator lint waivers (byte-select address bits only), used by make lint
 │   ├── axi4lite_types_pkg.sv       -- shared AXI protocol types (axi_resp_e), imported everywhere
 │   └── axi4lite_slave.sv           -- DUT: simple AXI4-Lite slave, NUM_REGS x 32/64-bit reg file
 ├── tb/
@@ -81,7 +82,9 @@ Two different things live in `formal/`, and it's easy to conflate them:
 ## How to run
 
 All targets live in the top-level [`Makefile`](Makefile) and run from the
-repo root. The file lists (`rtl/rtl.f`, `tb/tb.f`, `formal/formal.f`) hold
+repo root. `make check` (lint plus a Verilator smoke test, both data widths)
+needs only `verilator` and `slang` and is meant to run before every commit; the
+other targets need Questa. The file lists (`rtl/rtl.f`, `tb/tb.f`, `formal/formal.f`) hold
 repo-root-relative paths, and every output goes to `build/`: libraries and
 `modelsim.ini`, `build/sim/` (vsim's working directory: transcript, waves),
 `build/formal/` (everything qverify writes), `build/cov/` (UCDBs and coverage
@@ -108,6 +111,10 @@ in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
 switching width never means editing a source file.
 
 ```bash
+make check                                     # local, no Questa: lint (verilator -Wall + slang) and Verilator smoke, 32/64-bit
+make lint                                      # just the lint part
+make smoke DATA_WIDTH=64                       # just the smoke test, one width
+
 make simple                                    # plain (non-UVM) direct-drive sanity check via tb_simple.sv
 
 make uvm TEST=axi4lite_smoke_test              # directed write/read-back smoke test

@@ -7,6 +7,14 @@
 # formal/formal.f) hold repo-root-relative paths, and every tool output goes
 # to build/ (see "Outputs" below). `make clean` removes build/.
 #
+# Local checks, no Questa needed (verilator and slang on PATH):
+#   make check      BEFORE EVERY COMMIT: lint, then the Verilator smoke test
+#                   at both data widths. Stops at the first failure.
+#   make lint       verilator --lint-only -Wall on the RTL (both widths), and
+#                   slang over the RTL + formal/ (both widths, with and
+#                   without QUESTA_FORMAL)
+#   make smoke      tb_simple.sv under Verilator, DATA_WIDTH=32|64
+#
 # Requires vlib/vlog/vopt/vsim/qverify on PATH (source Questa's setup
 # script first, e.g. add .../questasim/linux_x86_64 and
 # .../questa_static_formal/linux_x86_64/bin to PATH) and a valid license
@@ -50,6 +58,7 @@
 #   build/cov/uvm/    uvm-sweep: seed_<n>.ucdb, merged.ucdb, merged_cvg.txt,
 #                     merged_code.txt, merge.log
 #   build/cov/formal/ formal-coverage scratch (removed at the end of the run)
+#   build/smoke_<w>/  Verilator smoke build and log, per data width
 # ============================================================================
 
 TEST      ?= axi4lite_smoke_test
@@ -90,6 +99,9 @@ VSIM_ON_PATH    := $(shell command -v vsim 2>/dev/null)
 QUESTA_HOME     ?= $(if $(VSIM_ON_PATH),$(abspath $(dir $(VSIM_ON_PATH))/..))
 QUESTA_UVM_HOME ?= $(if $(QUESTA_HOME),$(QUESTA_HOME)/verilog_src/uvm-1.2/src)
 
+VERILATOR ?= verilator
+SLANG     ?= slang
+
 VLIB    ?= vlib
 VMAP    ?= vmap
 VLOG    ?= vlog
@@ -108,6 +120,59 @@ QUESTA_WORK := $(BUILD)/questa_work
 DATA_WIDTH ?= 32
 WIDTH_DEFINE := +define+AXI4LITE_DATA_WIDTH=$(DATA_WIDTH)
 UVM_VERBOSITY ?= UVM_LOW
+
+# ============================================================================
+# Local checks (Verilator / slang, no Questa). check = lint + smoke at both
+# widths, in that order, stopping at the first failure.
+# ============================================================================
+WIDTHS := 32 64
+
+check:
+	$(MAKE) --no-print-directory lint
+	$(MAKE) --no-print-directory smoke DATA_WIDTH=32
+	$(MAKE) --no-print-directory smoke DATA_WIDTH=64
+	@echo "CHECK PASSED: lint, smoke (32- and 64-bit)"
+
+lint: lint-verilator lint-slang
+
+# -Wall on the RTL only. The one deliberate exception, the unused byte-select
+# address bits (spec §1), is waived bit-precisely in rtl/axi4lite_slave.vlt,
+# outside the RTL, so any other warning (including any other unused address
+# bit) is new and fails the target.
+lint-verilator:
+	@for w in $(WIDTHS); do \
+	  echo "verilator --lint-only -Wall, DATA_WIDTH=$$w"; \
+	  $(VERILATOR) --lint-only -Wall --top-module axi4lite_slave -GDATA_WIDTH=$$w rtl/axi4lite_slave.vlt -f $(RTL_F) || exit 1; \
+	done
+
+# slang over the RTL plus the formal environment, both widths, with and
+# without QUESTA_FORMAL (the two compile variants qverify and vsim see).
+# --timescale: axi4lite_formal_driver.sv has no `timescale of its own and
+# relies on vlog's -timescale, as the Questa targets pass it.
+lint-slang:
+	@for w in $(WIDTHS); do \
+	  echo "slang, DATA_WIDTH=$$w"; \
+	  $(SLANG) -q --timescale 1ns/1ps -DAXI4LITE_DATA_WIDTH=$$w \
+	      -f $(RTL_F) -f $(FORMAL_F) $(FORMAL_DRV) || exit 1; \
+	  echo "slang, DATA_WIDTH=$$w, QUESTA_FORMAL"; \
+	  $(SLANG) -q --timescale 1ns/1ps -DAXI4LITE_DATA_WIDTH=$$w -DQUESTA_FORMAL \
+	      -f $(RTL_F) -f $(FORMAL_F) || exit 1; \
+	done
+
+# tb_simple.sv under Verilator (2-state, so this is a quick local check, not a
+# substitute for `make simple` on Questa). Pass/fail from tb_simple's own
+# summary line.
+SMOKE_DIR = $(BUILD)/smoke_$(DATA_WIDTH)
+
+smoke:
+	mkdir -p $(SMOKE_DIR)
+	$(VERILATOR) --binary --timing -Wno-fatal -Wno-lint -Wno-style \
+	    $(WIDTH_DEFINE) --top-module tb_simple -Mdir $(SMOKE_DIR) \
+	    +incdir+tb -f $(RTL_F) tb/tb_simple.sv > $(SMOKE_DIR)/build.log 2>&1 \
+	    || { tail -30 $(SMOKE_DIR)/build.log; exit 1; }
+	$(SMOKE_DIR)/Vtb_simple | tee $(SMOKE_DIR)/smoke.log
+	@grep -q '\*\*\* TEST PASSED \*\*\*' $(SMOKE_DIR)/smoke.log \
+	    || { echo "SMOKE FAILED (DATA_WIDTH=$(DATA_WIDTH))"; exit 1; }
 
 # ============================================================================
 # Shared library setup -- just vlib+vmap, nothing UVM/test-specific about it.
@@ -311,7 +376,8 @@ formal-verify-noassume:
 	mkdir -p $(FORMAL_OUT)
 	DATA_WIDTH=$(DATA_WIDTH) NO_ASSUME=1 $(QVERIFY) -c -od $(FORMAL_OUT) -do formal/run_formal.tcl
 
-.PHONY: lib simple-build simple uvm-home-check uvm-build uvm uvm-sweep \
+.PHONY: check lint lint-verilator lint-slang smoke \
+        lib simple-build simple uvm-home-check uvm-build uvm uvm-sweep \
         formal-build formal formal-sweep formal-build-cov formal-coverage \
         formal-verify formal-verify-all formal-verify-noassume clean
 
