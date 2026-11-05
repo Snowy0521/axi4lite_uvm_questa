@@ -1,0 +1,265 @@
+
+-------------------------------------------------------------------------------
+Assumptions (0)
+-------------------------------------------------------------------------------
+<no assumptions>
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Targets Proven (65)
+-------------------------------------------------------------------------------
+u_bb_data.a_e2e_read_data
+u_bb_data.u_aw_q.a_no_overflow
+u_bb_data.u_rd_q.a_no_overflow
+u_bb_data.u_w_q.a_no_overflow
+u_bb_protocol.a_ar_leads_to_rvalid
+u_bb_protocol.a_arready_when_idle
+u_bb_protocol.a_awready_when_idle
+u_bb_protocol.a_bresp_legal_value
+u_bb_protocol.a_bvalid_low_in_reset
+u_bb_protocol.a_bvalid_not_wait_bready
+u_bb_protocol.a_bvalid_requires_aw_and_w
+u_bb_protocol.a_bvalid_stable
+u_bb_protocol.a_no_x_arready
+u_bb_protocol.a_no_x_awready
+u_bb_protocol.a_no_x_bresp
+u_bb_protocol.a_no_x_bvalid
+u_bb_protocol.a_no_x_rresp
+u_bb_protocol.a_no_x_rvalid
+u_bb_protocol.a_no_x_wready
+u_bb_protocol.a_read_okay_in_range
+u_bb_protocol.a_read_slverr_out_of_range
+u_bb_protocol.a_rresp_legal_value
+u_bb_protocol.a_rvalid_low_in_reset
+u_bb_protocol.a_rvalid_requires_ar
+u_bb_protocol.a_rvalid_requires_rdata
+u_bb_protocol.a_rvalid_stable
+u_bb_protocol.a_wready_when_idle
+u_bb_protocol.a_write_okay_in_range
+u_bb_protocol.a_write_slverr_out_of_range
+u_bb_protocol.u_ar_q.a_no_overflow
+u_bb_protocol.u_aw_q.a_no_overflow
+u_bb_protocol.u_w_q.a_no_overflow
+u_wb_regfile.a_read_data_matches_regfile
+u_wb_regfile.g_regfile_frame[0].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[10].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[11].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[12].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[13].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[14].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[15].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[1].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[2].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[3].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[4].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[5].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[6].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[7].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[8].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_regfile_frame[9].a_regfile_changes_only_on_own_write
+u_wb_regfile.g_strobe_byte_check[0].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[0].a_write_enabled_byte_updated
+u_wb_regfile.g_strobe_byte_check[1].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[1].a_write_enabled_byte_updated
+u_wb_regfile.g_strobe_byte_check[2].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[2].a_write_enabled_byte_updated
+u_wb_regfile.g_strobe_byte_check[3].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[3].a_write_enabled_byte_updated
+u_wb_regfile.g_strobe_byte_check[4].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[4].a_write_enabled_byte_updated
+u_wb_regfile.g_strobe_byte_check[5].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[5].a_write_enabled_byte_updated
+u_wb_regfile.g_strobe_byte_check[6].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[6].a_write_enabled_byte_updated
+u_wb_regfile.g_strobe_byte_check[7].a_write_disabled_byte_preserved
+u_wb_regfile.g_strobe_byte_check[7].a_write_enabled_byte_updated
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Targets Covered (37)
+-------------------------------------------------------------------------------
+u_covers.cp_ar_handshake_occurs
+u_covers.cp_ar_ready_after_valid
+u_covers.cp_aw_before_w
+u_covers.cp_aw_before_w_master
+u_covers.cp_aw_handshake_occurs
+u_covers.cp_aw_ready_after_valid
+u_covers.cp_aw_w_same_cycle
+u_covers.cp_b_and_r_pending
+u_covers.cp_b_handshake_occurs
+u_covers.cp_b_ready_after_valid
+u_covers.cp_b_ready_preasserted
+u_covers.cp_back_to_back_reads
+u_covers.cp_back_to_back_writes
+u_covers.cp_r_handshake_occurs
+u_covers.cp_r_ready_after_valid
+u_covers.cp_r_ready_preasserted
+u_covers.cp_read_after_reset
+u_covers.cp_read_after_write
+u_covers.cp_read_okay
+u_covers.cp_read_slverr
+u_covers.cp_read_written_data
+u_covers.cp_reset_after_aw_before_w
+u_covers.cp_reset_while_bvalid
+u_covers.cp_reset_while_rvalid
+u_covers.cp_w_before_aw
+u_covers.cp_w_before_aw_master
+u_covers.cp_w_handshake_occurs
+u_covers.cp_w_ready_after_valid
+u_covers.cp_write_after_reset
+u_covers.cp_write_arrives_while_b_pending
+u_covers.cp_write_okay
+u_covers.cp_write_read_same_cycle
+u_covers.cp_write_slverr
+u_covers.cp_write_then_read_back
+u_covers.cp_wstrb_all_zero
+u_covers.cp_wstrb_full
+u_covers.cp_wstrb_partial
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Targets Covered with Warning (6)
+-------------------------------------------------------------------------------
+u_bb_data.cp_e2e_partial_strobe_merge
+u_bb_data.cp_e2e_read_checked_nonzero
+u_bb_data.cp_e2e_sym_last_reg
+u_covers.cp_ar_ready_preasserted
+u_covers.cp_aw_ready_preasserted
+u_covers.cp_w_ready_preasserted
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Assumptions Used in Proofs
+-------------------------------------------------------------------------------
+<no assumptions used in proofs>
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Assumptions Used in Bounded Proofs
+-------------------------------------------------------------------------------
+<no assumptions used in bounded proofs>
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Assumptions Used in Unsatisfiable Sanity Checks
+-------------------------------------------------------------------------------
+<no assumptions used in unsatisfiable sanity checks>
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Assumptions Used in Bounded Unsatisfiable Sanity Checks
+-------------------------------------------------------------------------------
+<no assumptions used in bounded unsatisfiable sanity checks>
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Target Waveforms (43)
+-------------------------------------------------------------------------------
+  TB Time(ns) Dist  Target
+-------------------------------------------------------------------------------
+          600    5  u_bb_data.cp_e2e_partial_strobe_merge
+          500    4  u_bb_data.cp_e2e_read_checked_nonzero
+          400    3  u_bb_data.cp_e2e_sym_last_reg
+          200    1  u_covers.cp_ar_handshake_occurs
+          400    3  u_covers.cp_ar_ready_after_valid
+          200    1  u_covers.cp_ar_ready_preasserted
+          300    2  u_covers.cp_aw_before_w
+          300    2  u_covers.cp_aw_before_w_master
+          200    1  u_covers.cp_aw_handshake_occurs
+          400    3  u_covers.cp_aw_ready_after_valid
+          200    1  u_covers.cp_aw_ready_preasserted
+          200    1  u_covers.cp_aw_w_same_cycle
+          400    3  u_covers.cp_b_and_r_pending
+          400    3  u_covers.cp_b_handshake_occurs
+          500    4  u_covers.cp_b_ready_after_valid
+          400    3  u_covers.cp_b_ready_preasserted
+          400    3  u_covers.cp_back_to_back_reads
+          600    5  u_covers.cp_back_to_back_writes
+          300    2  u_covers.cp_r_handshake_occurs
+          400    3  u_covers.cp_r_ready_after_valid
+          300    2  u_covers.cp_r_ready_preasserted
+          700    6  u_covers.cp_read_after_reset
+          500    4  u_covers.cp_read_after_write
+          300    2  u_covers.cp_read_okay
+          300    2  u_covers.cp_read_slverr
+          500    4  u_covers.cp_read_written_data
+          300    2  u_covers.cp_reset_after_aw_before_w
+          500    4  u_covers.cp_reset_while_bvalid
+          500    4  u_covers.cp_reset_while_rvalid
+          300    2  u_covers.cp_w_before_aw
+          300    2  u_covers.cp_w_before_aw_master
+          200    1  u_covers.cp_w_handshake_occurs
+          400    3  u_covers.cp_w_ready_after_valid
+          200    1  u_covers.cp_w_ready_preasserted
+          800    7  u_covers.cp_write_after_reset
+          600    5  u_covers.cp_write_arrives_while_b_pending
+          400    3  u_covers.cp_write_okay
+          200    1  u_covers.cp_write_read_same_cycle
+          400    3  u_covers.cp_write_slverr
+          600    5  u_covers.cp_write_then_read_back
+          400    3  u_covers.cp_wstrb_all_zero
+          400    3  u_covers.cp_wstrb_full
+          400    3  u_covers.cp_wstrb_partial
+-------------------------------------------------------------------------------
+
+
+---------------------------------------
+Target Waveforms Summary by Distance
+---------------------------------------
+Distance                          Count
+---------------------------------------
+  1 cycle                             8
+  2 cycles                            9
+  3 cycles                           14
+  4 cycles                            6
+  5 cycles                            4
+  6 cycles                            1
+  7 cycles                            1
+---------------------------------------
+Total                                43
+---------------------------------------
+
+
+-------------------------------------------------------------------------------
+Proof Radius Summary by Target
+-------------------------------------------------------------------------------
+<all targets either proven or fired>
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+Engine Performance
+---------------------- Proofs -------------------------- Waveforms ------------
+   Engine |  Safety Liveness Vacuity  Sanity |  Safety Liveness Vacuity  Sanity
+-------------------------------------------------------------------------------
+        0 |       3        0       0       0 |       0        0       0       0
+        7 |      11        0       0       0 |      25        0      52       0
+       10 |      51        0       0       0 |      18        0      13       0
+-------------------------------------------------------------------------------
+
+
+
+
+
+========================================
+Property Summary                   Count
+========================================
+Assumes                                0
+========================================
+Asserts                               65
+----------------------------------------
+Proven                                65
+========================================
+Covers                                43
+----------------------------------------
+Covered                               43
+  Covered with Warning  (6)
+========================================
