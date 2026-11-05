@@ -38,6 +38,7 @@ axi4lite_uvm_questa/
 ├── formal/
 │   ├── formal.f                    -- checker + formal_tb file list, exactly what qverify compiles
 │   ├── run_formal.tcl              -- qverify batch script for the real formal-proof flow (see below)
+│   ├── expected_counts.txt         -- expected proven / covered / assume counts per configuration, read by the formal self-check
 │   ├── reference/                  -- qverify reports of a clean run (32/64-bit, with/without assumptions), the formal self-check's reference
 │   ├── axi4lite_assumptions.sv     -- `assume property`: constrains the environment to legal masters (no proof depends on them)
 │   ├── axi4lite_blackbox_protocol.sv -- `assert property`, AXI ports only: handshake rules, response codes, X checks
@@ -56,6 +57,9 @@ axi4lite_uvm_questa/
 │       └── uvm/
 │           ├── uvm_env_structure.svg    -- test / env / agent hierarchy and its connections to the DUT
 │           └── scoreboard_data_flow.svg -- data flow of the scoreboard's shadow-register check
+├── scripts/
+│   ├── check_formal_report.py      -- formal self-check: fails unless a qverify report matches expected_counts.txt
+│   └── test_check_formal_report.py -- its tests: reference reports must pass, damaged copies must fail (run by make check)
 ├── sim/
 │   ├── wave.do                     -- interactive-only GUI script: curated waves for tb_simple, then run
 │   └── wave_uvm.do                 -- interactive-only GUI script: curated waves for the UVM env (tb_top / intf / dut), then run
@@ -105,6 +109,9 @@ reports). Requires the relevant tool on `PATH`:
   setup. Driven by [`formal/run_formal.tcl`](formal/run_formal.tcl), compiled
   into its own `build/formal_work` library; the summary lands in
   `build/formal/formal_report.txt` (`formal_report_64.txt` for the 64-bit run).
+  Every proof ends with a self-check: the target fails unless the report shows
+  every assert proven and every cover reached, in the expected numbers
+  (`formal/expected_counts.txt`), so a failed proof can't go unnoticed.
 
 `DATA_WIDTH` (32 by default, or 64) works on every target. It is compiled
 in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
@@ -112,7 +119,7 @@ in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
 switching width never means editing a source file.
 
 ```bash
-make check                                     # local, no Questa: lint (verilator -Wall + slang) and Verilator smoke, 32/64-bit
+make check                                     # local, no Questa: lint (verilator -Wall + slang), Verilator smoke at 32/64-bit, self-check tests
 make lint                                      # just the lint part
 make smoke DATA_WIDTH=64                       # just the smoke test, one width
 

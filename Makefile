@@ -8,12 +8,15 @@
 # to build/ (see "Outputs" below). `make clean` removes build/.
 #
 # Local checks, no Questa needed (verilator and slang on PATH):
-#   make check      BEFORE EVERY COMMIT: lint, then the Verilator smoke test
-#                   at both data widths. Stops at the first failure.
+#   make check      BEFORE EVERY COMMIT: lint, the Verilator smoke test at both
+#                   data widths, and the formal self-check's own tests. Stops at
+#                   the first failure.
 #   make lint       verilator --lint-only -Wall on the RTL (both widths), and
 #                   slang over the RTL + formal/ (both widths, with and
 #                   without QUESTA_FORMAL)
 #   make smoke      tb_simple.sv under Verilator, DATA_WIDTH=32|64
+#   make selfcheck-test  tests of scripts/check_formal_report.py against
+#                   formal/reference/ and damaged copies of it
 #
 # Requires vlib/vlog/vopt/vsim/qverify on PATH (source Questa's setup
 # script first, e.g. add .../questasim/linux_x86_64 and
@@ -42,6 +45,8 @@
 #   make formal-verify                        # 32-bit (DATA_WIDTH default)
 #   make formal-verify DATA_WIDTH=64          # 64-bit
 #   make formal-verify-all                    # both
+# Every proof ends with the formal self-check: scripts/check_formal_report.py
+# fails the target unless the report matches formal/expected_counts.txt.
 #
 # DATA_WIDTH (32 or 64, default 32) applies to every target -- UVM,
 # simple and formal alike:
@@ -101,6 +106,7 @@ QUESTA_UVM_HOME ?= $(if $(QUESTA_HOME),$(QUESTA_HOME)/verilog_src/uvm-1.2/src)
 
 VERILATOR ?= verilator
 SLANG     ?= slang
+PYTHON    ?= python3
 
 VLIB    ?= vlib
 VMAP    ?= vmap
@@ -131,7 +137,8 @@ check:
 	$(MAKE) --no-print-directory lint
 	$(MAKE) --no-print-directory smoke DATA_WIDTH=32
 	$(MAKE) --no-print-directory smoke DATA_WIDTH=64
-	@echo "CHECK PASSED: lint, smoke (32- and 64-bit)"
+	$(MAKE) --no-print-directory selfcheck-test
+	@echo "CHECK PASSED: lint, smoke (32- and 64-bit), formal self-check tests"
 
 lint: lint-verilator lint-slang
 
@@ -173,6 +180,9 @@ smoke:
 	$(SMOKE_DIR)/Vtb_simple | tee $(SMOKE_DIR)/smoke.log
 	@grep -q '\*\*\* TEST PASSED \*\*\*' $(SMOKE_DIR)/smoke.log \
 	    || { echo "SMOKE FAILED (DATA_WIDTH=$(DATA_WIDTH))"; exit 1; }
+
+selfcheck-test:
+	$(PYTHON) scripts/test_check_formal_report.py
 
 # ============================================================================
 # Shared library setup -- just vlib+vmap, nothing UVM/test-specific about it.
@@ -359,10 +369,17 @@ formal-coverage: formal-build-cov
 # Real Questa Formal Verification (exhaustive property proof, flow #1) via
 # `qverify`, driven by formal/run_formal.tcl. Report:
 # build/formal/formal_report.txt (32-bit) or formal_report_64.txt.
+# The report is deleted first, so the self-check can't pass on the report of
+# an earlier run if qverify stops without writing one. The name is built the
+# same way as in run_formal.tcl.
 # ============================================================================
+FORMAL_REPORT = $(FORMAL_OUT)/formal_report$(if $(filter 32,$(DATA_WIDTH)),,_$(DATA_WIDTH))
+
 formal-verify:
 	mkdir -p $(FORMAL_OUT)
+	rm -f $(FORMAL_REPORT).txt
 	DATA_WIDTH=$(DATA_WIDTH) $(QVERIFY) -c -od $(FORMAL_OUT) -do formal/run_formal.tcl
+	$(PYTHON) scripts/check_formal_report.py $(FORMAL_REPORT).txt
 
 # Prove both supported data widths back to back.
 formal-verify-all:
@@ -374,9 +391,11 @@ formal-verify-all:
 # formal_report[_64]_noassume.txt; the normal report is untouched.
 formal-verify-noassume:
 	mkdir -p $(FORMAL_OUT)
+	rm -f $(FORMAL_REPORT)_noassume.txt
 	DATA_WIDTH=$(DATA_WIDTH) NO_ASSUME=1 $(QVERIFY) -c -od $(FORMAL_OUT) -do formal/run_formal.tcl
+	$(PYTHON) scripts/check_formal_report.py $(FORMAL_REPORT)_noassume.txt
 
-.PHONY: check lint lint-verilator lint-slang smoke \
+.PHONY: check lint lint-verilator lint-slang smoke selfcheck-test \
         lib simple-build simple uvm-home-check uvm-build uvm uvm-sweep \
         formal-build formal formal-sweep formal-build-cov formal-coverage \
         formal-verify formal-verify-all formal-verify-noassume clean
