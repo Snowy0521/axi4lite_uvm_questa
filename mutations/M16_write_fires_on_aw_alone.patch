@@ -1,0 +1,13 @@
+# M16: Write fires on aw_hs_done alone, with stale write data
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -107,7 +107,7 @@
+       end
+ 
+       // fire the actual write once both halves have arrived
+-      if (aw_hs_done && w_hs_done && !bvalid) begin // cycle N+1 
++      if (aw_hs_done && !bvalid) begin // cycle N+1 
+         automatic int unsigned word_idx = 32'(awaddr_latched[ADDR_WIDTH-1:ADDR_LSB]);
+         if (word_idx < NUM_REGS) begin
+           for (int b = 0; b < DATA_WIDTH/8; b++) begin

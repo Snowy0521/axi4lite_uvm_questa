@@ -1,0 +1,13 @@
+# M06: BVALID dropped after one cycle, without waiting for BREADY
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -124,7 +124,7 @@
+       end
+ 
+       // clear bvalid once the master accepts the response
+-      if (bvalid && bready) // cycle N+2 
++      if (bvalid) // cycle N+2 
+         bvalid <= 1'b0;
+     end
+   end

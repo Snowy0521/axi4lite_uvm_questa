@@ -103,19 +103,34 @@ module formal_tb
   initial clk = 0;
   always #5 clk = ~clk;   // 10ns period -> 100MHz
 
+  // Power-on: 1 at time 0, then a real 1 -> 0 edge at 1 ns, after every process
+  // has started and before the first posedge. `rst_n = 0` at time 0 would race
+  // the DUT's `negedge rst_n` event control. Every later change is at a negedge,
+  // so no clock edge sees rst_n move. Then a rare mid-run reset, so the reset
+  // properties run in simulation too and a bug that only shows after a later
+  // reset is visible to the mutation signature.
   initial begin
-    rst_n = 0;
+    rst_n = 1'b1;
+    #1 rst_n = 1'b0;
     repeat (3) @(posedge clk);
-    rst_n = 1;
+    @(negedge clk) rst_n = 1'b1;
+    forever begin
+      repeat ($urandom_range(3000, 1000)) @(negedge clk);
+      rst_n = 1'b0;
+      repeat ($urandom_range(3, 1)) @(negedge clk);
+      rst_n = 1'b1;
+    end
   end
 
   // ------------------------------------------------------------------
-  // Simulation-only run length. A true formal tool never reaches an
-  // `initial` block like this one during property solving; it only
-  // matters for flow #2.
+  // Simulation-only run length, +sim_cycles=<n> (default 10,000 clock
+  // cycles). A true formal tool never reaches an `initial` block like this
+  // one during property solving; it only matters for flow #2.
   // ------------------------------------------------------------------
   initial begin
-    #100000;   // ~10,000 clock cycles at the 10ns period above
+    int unsigned sim_cycles;
+    if (!$value$plusargs("sim_cycles=%d", sim_cycles)) sim_cycles = 10000;
+    repeat (sim_cycles) @(posedge clk);
     $display("[formal_tb] Reached simulation time limit, stopping.");
     $finish;
   end
@@ -143,6 +158,9 @@ module formal_tb
     .DATA_WIDTH (DATA_WIDTH),
     .NUM_REGS   (NUM_REGS)
   ) u_driver (.*);
+
+  // Behaviour signature for mutation testing, printed at the end of the run
+  axi4lite_signature #(.DATA_WIDTH(DATA_WIDTH)) u_signature (.*);
 `endif
 
   // ------------------------------------------------------------------

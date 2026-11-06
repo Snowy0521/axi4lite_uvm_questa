@@ -53,6 +53,39 @@ class RealFailingReports(unittest.TestCase):
         self.assertEqual(rows["Proven"], rows["Asserts"])  # the counts alone look clean
         self.assertTrue(any("Vacuous" in e for e in self.errors("failing_vacuous.txt")))
 
+    def test_vacuous_assert_still_fails_without_its_summary_row(self):
+        """The section checks catch it alone: the summary row is not the only layer."""
+        text = replace(read("failing_vacuous.txt"), "  Vacuous  (1)\n", "")
+        errors, _ = cfr.check_report(text, cfr.load_expected()["formal_report.txt"])
+        self.assertTrue(any("Vacuously Proven" in e for e in errors), errors)
+
+
+class FormalVerdict(unittest.TestCase):
+    def setUp(self):
+        self.expected = cfr.load_expected()["formal_report.txt"]
+
+    def test_clean_report_is_not_a_catch(self):
+        self.assertEqual(cfr.formal_verdict(read(), self.expected), (False, ""))
+
+    def test_fired_targets_are_named(self):
+        caught, detail = cfr.formal_verdict(read("failing_m04.txt"), self.expected)
+        self.assertTrue(caught)
+        for name in ("a_e2e_read_data", "a_read_slverr_out_of_range", "a_write_slverr_out_of_range"):
+            self.assertIn(name, detail)
+
+    def test_vacuous_target_is_a_catch(self):
+        caught, detail = cfr.formal_verdict(read("failing_vacuous.txt"), self.expected)
+        self.assertTrue(caught)
+        self.assertIn("a_bresp_legal_value", detail)
+
+    def test_report_not_understood(self):
+        self.assertEqual(cfr.formal_verdict("", self.expected)[0], None)
+
+    def test_unknown_row_without_a_named_target_needs_a_person(self):
+        text = replace(read(), "Proven                                57",
+                       "Proven                                56\nInconclusive                           1")
+        self.assertEqual(cfr.formal_verdict(text, self.expected)[0], None)
+
 
 class DamagedReports(unittest.TestCase):
     def setUp(self):

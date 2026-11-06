@@ -1,0 +1,12 @@
+# M08: W before AW loses the data: the late AW clears the latched write data
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -98,6 +98,7 @@
+       if (awvalid && awready) begin // cycle N
+         awaddr_latched <= awaddr;
+         aw_hs_done     <= 1'b1;
++        if (w_hs_done) wdata_latched <= '0;
+       end
+       // latch W
+       if (wvalid && wready) begin // cycle N

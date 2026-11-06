@@ -1,0 +1,13 @@
+# M10: Read decode rounds an unaligned address up to the next word
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -141,7 +141,7 @@
+       rresp  <= AXI_RESP_OKAY;
+     end else begin
+       if (arvalid && arready) begin
+-        automatic int unsigned word_idx = 32'(araddr[ADDR_WIDTH-1:ADDR_LSB]);
++        automatic int unsigned word_idx = 32'(ADDR_WIDTH'(araddr + ADDR_WIDTH'(DATA_WIDTH/8 - 1)) >> ADDR_LSB);
+         if (word_idx < NUM_REGS) begin
+           rdata <= regfile[word_idx];
+           rresp <= AXI_RESP_OKAY;

@@ -36,6 +36,10 @@ ROW = re.compile(r"^(Assumes|Asserts|Proven|Covers|Covered)\s+(\d+)$")
 WARNED_ROW = re.compile(r"^\s+Covered with Warning\s+\((\d+)\)$")
 SECTION = re.compile(r"^Targets (.+) \((\d+)\)\s*$", re.M)
 CLEAN_SECTIONS = ("Proven", "Covered", "Covered with Warning")
+SECTION_BODY = re.compile(r"^Targets ([^\n]+) \(\d+\)\s*\n-+\n(.*?)^-+$", re.M | re.S)
+# As Questa spells them: the section is plural, the summary row is not
+FIRED_SECTIONS = ("Fired", "Fired with Warnings")
+OTHER_CATCH_SECTIONS = ("Uncoverable", "Vacuously Proven")
 ALL_RESOLVED = "<all targets either proven or fired>"
 # Sign-off is on full proofs: a non-empty section here means some result rests
 # on a bounded proof or on an unsatisfiable sanity check.
@@ -112,6 +116,30 @@ def check_report(text, expected):
         notes.append("covered with warning is %d, was %d: worth a look (not a failure)"
                      % (rows["warned"], expected["warned"]))
     return errors, notes
+
+
+def target_names(text):
+    """{section name: [target names]} for every Targets <x> (n) section."""
+    return {name: body.split() for name, body in SECTION_BODY.findall(text)}
+
+
+def formal_verdict(text, expected):
+    """Mutation scoring: (caught, detail) from the report alone, since qverify exits
+    0 with fired asserts. caught is True, False (a clean report), or None when the
+    report shows neither, e.g. an inconclusive target: that needs a person."""
+    if len(SUMMARY_HEADING.findall(text)) != 1:
+        return None, "no Property Summary block"
+    errors, _ = check_report(text, expected)
+    if not errors:
+        return False, ""
+    names = target_names(text)
+    fired = [t for section in FIRED_SECTIONS for t in names.get(section, [])]
+    if fired:
+        return True, "fired: " + ", ".join(sorted(fired))
+    other = [t for section in OTHER_CATCH_SECTIONS for t in names.get(section, [])]
+    if other:
+        return True, "not fired, but: " + ", ".join(sorted(other))
+    return None, errors[0]
 
 
 def load_expected(path=EXPECTED_FILE):

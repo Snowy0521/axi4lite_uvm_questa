@@ -1,0 +1,12 @@
+# M13: AWREADY not released after a write
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -119,7 +119,6 @@
+           bresp <= AXI_RESP_SLVERR; 
+         end
+         bvalid     <= 1'b1;
+-        aw_hs_done <= 1'b0;
+         w_hs_done  <= 1'b0;
+       end
+ 

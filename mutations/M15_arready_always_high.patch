@@ -1,0 +1,13 @@
+# M15: ARREADY always high: a new AR overwrites a pending R
+# baseline 32: S K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -132,7 +132,7 @@
+   // -----------------------------------------------------------------------
+   // Read channel
+   // -----------------------------------------------------------------------
+-  assign arready = !rvalid;   // accept a new read address once RVALID has cleared
++  assign arready = 1'b1;
+ 
+   always_ff @(posedge clk or negedge rst_n) begin
+     if (!rst_n) begin
