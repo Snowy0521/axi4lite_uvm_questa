@@ -1,0 +1,20 @@
+# Count  Type     Message ID         Summary
+# ---------------------------------------------------------------------------
+#     1  Info     formal-208         Using automatically created initialization sequence to initialize design state.
+#     4  Info     formal-385         Established connection with engine process.
+#     1  Info     formal-426         Setting number of jobs based on available compute resources (use '-jobs' option to override automatic setting).
+# 
+# Final Process Statistics: Peak Memory 0.55GB, Cumulative CPU Time 4s, Elapsed Time 1s
+# 
+# To see results in the GUI run:
+# qverify /tmp/m04/build/formal/propcheck.db
+# 
+# Command : formal generate report /tmp/m04/build/formal/formal_report.txt
+# Info    : Report generated.  '/tmp/m04/build/formal/formal_report.txt'.  [command-219]
+python3 scripts/check_formal_report.py build/formal/formal_report.txt
+FORMAL SELF-CHECK FAILED: build/formal/formal_report.txt
+  unexpected summary row: 'Fired                                  3'
+  unexpected summary row: 'Fired with Warning  (3)'
+  unexpected summary row: 'Uncoverable                            2'
+make: *** [Makefile:382: formal-verify] Fehler 1
+make exit code: 2
