@@ -1,0 +1,11 @@
+`verilator_config
+// Lint waivers for axi4lite_slave, used by `make lint` only.
+// Byte-select address bits are unused by design (spec section 1,
+// word_idx = addr[ADDR_WIDTH-1:ADDR_LSB]): exactly ADDR_LSB-1:0, i.e. 1:0 at
+// 32-bit and 2:0 at 64-bit, nothing else. Any other unused bit changes the
+// message, so the waiver no longer matches and -Wall fails. -match is a glob
+// over the whole message; '[' and ']' are glob syntax, hence the '?'.
+lint_off -rule UNUSEDSIGNAL -file "*/axi4lite_slave.sv" -match "Bits of signal are not used: 'araddr'?1:0?"
+lint_off -rule UNUSEDSIGNAL -file "*/axi4lite_slave.sv" -match "Bits of signal are not used: 'araddr'?2:0?"
+lint_off -rule UNUSEDSIGNAL -file "*/axi4lite_slave.sv" -match "Bits of signal are not used: 'awaddr_latched'?1:0?"
+lint_off -rule UNUSEDSIGNAL -file "*/axi4lite_slave.sv" -match "Bits of signal are not used: 'awaddr_latched'?2:0?"

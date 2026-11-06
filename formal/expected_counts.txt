@@ -1,0 +1,14 @@
+# Expected qverify results per configuration, read by scripts/check_formal_report.py.
+# Changing a number here is a deliberate edit, in the same commit as the property
+# change that moves it, together with docs/plan.md section 2.7 and formal/reference/.
+#
+# asserts = whitebox/blackbox asserts, all of which must be proven
+# covers  = cover properties, all of which must be reached
+# assumes = active assumptions
+# warned  = covers reached with a warning: counted as covered, a change is only noted
+#
+# report                        asserts covers assumes warned
+formal_report.txt                    57     43      15     33
+formal_report_64.txt                 65     43      15     33
+formal_report_noassume.txt           57     43       0      6
+formal_report_64_noassume.txt        65     43       0      6

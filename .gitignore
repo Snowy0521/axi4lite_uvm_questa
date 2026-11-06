@@ -21,6 +21,7 @@ vish_stacktrace.vstf
 propcheck.db/
 *.rpt
 formal_report*.txt
+!formal/reference/formal_report*.txt
 qverify_cmds.tcl
 qverify_ui_cmds.tcl
 

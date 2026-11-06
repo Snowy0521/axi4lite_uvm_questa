@@ -15,6 +15,7 @@ axi4lite_uvm_questa/
 ├── Makefile                        -- every QuestaSim + Questa Formal target, run from the repo root
 ├── rtl/
 │   ├── rtl.f                       -- RTL file list (repo-root-relative)
+│   ├── axi4lite_slave.vlt          -- Verilator lint waivers (byte-select address bits only), used by make lint
 │   ├── axi4lite_types_pkg.sv       -- shared AXI protocol types (axi_resp_e), imported everywhere
 │   └── axi4lite_slave.sv           -- DUT: simple AXI4-Lite slave, NUM_REGS x 32/64-bit reg file
 ├── tb/
@@ -37,6 +38,8 @@ axi4lite_uvm_questa/
 ├── formal/
 │   ├── formal.f                    -- checker + formal_tb file list, exactly what qverify compiles
 │   ├── run_formal.tcl              -- qverify batch script for the real formal-proof flow (see below)
+│   ├── expected_counts.txt         -- expected proven / covered / assume counts per configuration, read by the formal self-check
+│   ├── reference/                  -- qverify reports the formal self-check is tested on: clean runs (32/64-bit, with/without assumptions) and two real failing runs
 │   ├── axi4lite_assumptions.sv     -- `assume property`: constrains the environment to legal masters (no proof depends on them)
 │   ├── axi4lite_blackbox_protocol.sv -- `assert property`, AXI ports only: handshake rules, response codes, X checks
 │   ├── axi4lite_blackbox_data.sv   -- `assert property`, AXI ports only: end-to-end data check (symbolic address)
@@ -54,6 +57,9 @@ axi4lite_uvm_questa/
 │       └── uvm/
 │           ├── uvm_env_structure.svg    -- test / env / agent hierarchy and its connections to the DUT
 │           └── scoreboard_data_flow.svg -- data flow of the scoreboard's shadow-register check
+├── scripts/
+│   ├── check_formal_report.py      -- formal self-check: fails unless a qverify report matches expected_counts.txt
+│   └── test_check_formal_report.py -- its tests: reference reports must pass, damaged copies must fail (run by make check)
 ├── sim/
 │   ├── wave.do                     -- interactive-only GUI script: curated waves for tb_simple, then run
 │   └── wave_uvm.do                 -- interactive-only GUI script: curated waves for the UVM env (tb_top / intf / dut), then run
@@ -81,7 +87,9 @@ Two different things live in `formal/`, and it's easy to conflate them:
 ## How to run
 
 All targets live in the top-level [`Makefile`](Makefile) and run from the
-repo root. The file lists (`rtl/rtl.f`, `tb/tb.f`, `formal/formal.f`) hold
+repo root. `make check` (lint plus a Verilator smoke test, both data widths)
+needs only `verilator` and `slang` and is meant to run before every commit; the
+other targets need Questa. The file lists (`rtl/rtl.f`, `tb/tb.f`, `formal/formal.f`) hold
 repo-root-relative paths, and every output goes to `build/`: libraries and
 `modelsim.ini`, `build/sim/` (vsim's working directory: transcript, waves),
 `build/formal/` (everything qverify writes), `build/cov/` (UCDBs and coverage
@@ -101,6 +109,9 @@ reports). Requires the relevant tool on `PATH`:
   setup. Driven by [`formal/run_formal.tcl`](formal/run_formal.tcl), compiled
   into its own `build/formal_work` library; the summary lands in
   `build/formal/formal_report.txt` (`formal_report_64.txt` for the 64-bit run).
+  Every proof ends with a self-check: the target fails unless the report shows
+  every assert proven and every cover reached, in the expected numbers
+  (`formal/expected_counts.txt`), so a failed proof can't go unnoticed.
 
 `DATA_WIDTH` (32 by default, or 64) works on every target. It is compiled
 in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
@@ -108,6 +119,10 @@ in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
 switching width never means editing a source file.
 
 ```bash
+make check                                     # local, no Questa: lint (verilator -Wall + slang), Verilator smoke at 32/64-bit, self-check tests
+make lint                                      # just the lint part
+make smoke DATA_WIDTH=64                       # just the smoke test, one width
+
 make simple                                    # plain (non-UVM) direct-drive sanity check via tb_simple.sv
 
 make uvm TEST=axi4lite_smoke_test              # directed write/read-back smoke test
