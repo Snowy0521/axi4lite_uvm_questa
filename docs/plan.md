@@ -135,10 +135,11 @@ into its own `build/formal_work` library; every qverify output and `formal_repor
 **Self-check (done):** every `make formal-verify*` ends with `scripts/check_formal_report.py`, which fails the
 target unless the report matches its row of §2.7, kept machine-readable in `formal/expected_counts.txt`. Mutation
 scoring (§4) needs this check on the clean design as its reference.
-- **The parts it reads fail closed.** Only clean reports have been seen, so the rows Questa prints for a failing
-  property are not known. The `Property Summary` block may hold only the rows of a clean report (`Assumes`,
-  `Asserts`, `Proven`, `Covers`, `Covered`, `Covered with Warning`). Any other row there is an error: a fired or
-  inconclusive row, or a format change after a tool update. The rest of the report is ignored unless listed below,
+- **The parts it reads fail closed.** Not every failure shape has been seen in a real report. The `Property Summary`
+  block may hold only the rows of a clean report (`Assumes`, `Asserts`, `Proven`, `Covers`, `Covered`, `Covered with
+  Warning`). Any other row there is an error: `Fired`, `Fired with Warning`, `Uncoverable` and `Vacuous` (all seen
+  in real reports), an inconclusive row, or a format change after a tool update. Comparing counts is not enough: a
+  vacuous assert stays under `Proven`, so `Proven` = `Asserts` with a `Vacuous (1)` row below it. The rest of the report is ignored unless listed below,
   including target names, `Assumptions Used in Proofs` (non-empty whenever assumptions are on) and the statistics.
 - `Asserts` = `Proven` = expected, `Covers` = `Covered` = expected, `Assumes` = expected.
 - Cross-checks against the rest of the report: any `Targets <x> (n)` section other than Proven / Covered / Covered with
@@ -148,9 +149,10 @@ scoring (§4) needs this check on the clean design as its reference.
 - A changed "Covered with Warning" count is printed as a note, not a failure (§2.7).
 - The Makefile deletes the report before qverify starts, so a run that stops without writing one cannot pass on an
   earlier report.
-- `make check` tests the script without Questa (`scripts/test_check_formal_report.py`): the four reference reports
-  must pass, and damaged copies of them must fail. The first real failing report (step 4) is the check on those
-  assumptions: if its rows differ from the damaged copies, extend the tests.
+- `make check` tests the script without Questa (`scripts/test_check_formal_report.py`): the four clean reports must
+  pass; two real failing reports must fail (`formal/reference/failing_m04.txt`: 3 fired, 2 uncoverable;
+  `failing_vacuous.txt`: `a_bresp_legal_value` made vacuous); and damaged copies of a clean report must fail. Both
+  failing reports come from throwaway runs of the 32-bit `make formal-verify` on a modified copy of the design.
 
 **Reference reports (in the repo):** the parser is written against real Questa reports, not a guessed format.
 The four reports of a clean run on the step 3 RTL (Questa Formal 2024.3, 2026-11-05) are committed under
@@ -587,7 +589,7 @@ Questa can be traced to one change.
 |---|---|---|
 | 1 | This plan; spec §1 / §5.5 | Plan and spec consistent with the code (counts, line references, rules) |
 | 2 | Structure: root `Makefile`, `rtl.f` / `tb.f` / `formal.f`, outputs in `build/`, `formal/run_formal.tcl`, VCD behind `+vcd`, `QUESTA_UVM_HOME` from the `vsim` on PATH (not `UVM_HOME`), `.gitignore`, README layout (done; Questa checklist passed 2026-11-04 on Questa 2024.3, 64-bit no-assume proof 549 s) | Questa checklist passes unchanged, after `git clean -fdx sim/` removes the old flow's outputs: `simple`; `uvm` smoke with a UVM-1.2 banner, and with `PLUSARGS=+vcd`; `uvm-sweep TEST=axi4lite_random_test N=3` at 32 and 64 bits; `formal-sweep N=3`; `formal-coverage N=3`; `formal-verify-all` 57/57, 65/65 proven, 43/43 covered; `formal-verify-noassume` all proven at 32 and 64 bits; the four `build/formal/formal_report*.txt` copied outside the repo (the reference for the step 3 self-check); outputs only under `build/` (`git status --short --ignored`); nothing left after `make clean` |
-| 3 | `make lint` (Verilator `-Wall` on the RTL with the two `WIDTHEXPAND` fixed and the two `UNUSEDSIGNAL` waived bit-precisely in `rtl/axi4lite_slave.vlt` (lint only); slang over RTL + `formal/`, both defines, both widths, `--timescale 1ns/1ps`), `make check` (lint + Verilator smoke on `*** TEST PASSED ***`, both widths), formal self-check (implemented; Questa checklist passed 2026-11-06: both mutation runs of `docs/questa_mutation_runs.md` fail the self-check as intended (M04: 3 fired, 2 uncoverable; vacuous `a_bresp_legal_value`: `Vacuous (1)`), results in `step3_results/`; all four clean proofs pass it) | `make check` passes locally; `formal-verify-all` and `formal-verify-noassume` at both widths still 57 / 65 proven, 43 covered after the RTL cast change; self-check passes on all four configurations |
+| 3 | `make lint` (Verilator `-Wall` on the RTL with the two `WIDTHEXPAND` fixed and the two `UNUSEDSIGNAL` waived bit-precisely in `rtl/axi4lite_slave.vlt` (lint only); slang over RTL + `formal/`, both defines, both widths, `--timescale 1ns/1ps`), `make check` (lint + Verilator smoke on `*** TEST PASSED ***`, both widths), formal self-check (implemented; Questa checklist passed 2026-11-06: both throwaway mutation runs fail the self-check as intended (M04: 3 fired, 2 uncoverable; vacuous `a_bresp_legal_value`: `Vacuous (1)`), kept as `formal/reference/failing_*.txt`; all four clean proofs pass it) | `make check` passes locally; `formal-verify-all` and `formal-verify-noassume` at both widths still 57 / 65 proven, 43 covered after the RTL cast change; self-check passes on all four configurations |
 | 4 | `scripts/questa_log.py` (shared run classifier); `formal_tb`'s simulation reset in the `#1` drop / negedge release form, plus a rare mid-run reset; mutations M01–M20 (21 patches: M09a / M09b) on the current testbench | Baseline table: every mutant scored per flow and compared with the "expected at baseline" column (§4); clean design passes every flow first; `formal-sweep` still passes with the mid-run reset |
 | 5a | `scripts/regress.py` (reusing `questa_log.py`), monitor `FINGERPRINT`, monitor X check (`MON_X`), master-signal initialisers in the interface, `tb_top` power-on reset as `rst_n = 1'b1` / `#1` drop / release at a negedge after 3 posedges, formal checkers bound into `tb_top.dut` (instance bind, `NO_UVM_CHECKERS` switch). No new tests | Existing tests pass on 20 seeds in both widths with the bound checkers silent, **including no assume firing at power-on**; no `MON_X`; coverage numbers unchanged; distinct fingerprints for the random tests |
 | 5b | Reset: `rst_n` moved into the interface (`= 1'b1`, power-on drop at `#1`), `apply_reset` / `reset_ctrl`, `clear_master_valids`, driver kill path and `wait_reset_release`, monitor abort + `reset_ap`, scoreboard clear, `cp_reset_phase`, `axi4lite_reset_test` | Reset test and existing tests pass on 20 seeds in both widths; every `cp_reset_phase` bin hit, `idle` including resets that land while the driver is blocked in `get_next_item`; no `m_*valid_low_in_reset` firing; M09b killed by `axi4lite_reset_test` |

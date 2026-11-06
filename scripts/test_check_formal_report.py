@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Tests for check_formal_report.py, run by make check (no Questa needed).
 
-Each reference report must pass. Each damaged copy of one must fail: only clean
-reports exist, so these damaged copies stand in for the failing runs the parser
-has never seen.
+Each clean reference report must pass. Two real failing reports must fail:
+failing_m04.txt (out-of-range accesses answer OKAY) and failing_vacuous.txt (one
+vacuous assert, which Questa still counts under Proven). Damaged copies of a clean
+report must fail too: they stand in for failure shapes no real run has shown yet.
 """
 import os
 import sys
@@ -32,6 +33,25 @@ class ReferenceReports(unittest.TestCase):
         for name, expected in table.items():
             errors, notes = cfr.check_report(read(name), expected)
             self.assertEqual((errors, notes), ([], []), name)
+
+
+class RealFailingReports(unittest.TestCase):
+    """Reports of real qverify runs on broken designs, at the 32-bit counts."""
+
+    def errors(self, name):
+        errors, _ = cfr.check_report(read(name), cfr.load_expected()["formal_report.txt"])
+        return errors
+
+    def test_fired_asserts_and_uncoverable_covers(self):
+        errors = self.errors("failing_m04.txt")
+        for row in ("Fired", "Fired with Warning", "Uncoverable"):
+            self.assertTrue(any("'%s " % row in e for e in errors), (row, errors))
+
+    def test_vacuous_assert_counted_as_proven(self):
+        text = read("failing_vacuous.txt")
+        rows, _ = cfr.parse_summary(text)
+        self.assertEqual(rows["Proven"], rows["Asserts"])  # the counts alone look clean
+        self.assertTrue(any("Vacuous" in e for e in self.errors("failing_vacuous.txt")))
 
 
 class DamagedReports(unittest.TestCase):

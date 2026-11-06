@@ -39,7 +39,7 @@ axi4lite_uvm_questa/
 │   ├── formal.f                    -- checker + formal_tb file list, exactly what qverify compiles
 │   ├── run_formal.tcl              -- qverify batch script for the real formal-proof flow (see below)
 │   ├── expected_counts.txt         -- expected proven / covered / assume counts per configuration, read by the formal self-check
-│   ├── reference/                  -- qverify reports of a clean run (32/64-bit, with/without assumptions), the formal self-check's reference
+│   ├── reference/                  -- qverify reports the formal self-check is tested on: clean runs (32/64-bit, with/without assumptions) and two real failing runs
 │   ├── axi4lite_assumptions.sv     -- `assume property`: constrains the environment to legal masters (no proof depends on them)
 │   ├── axi4lite_blackbox_protocol.sv -- `assert property`, AXI ports only: handshake rules, response codes, X checks
 │   ├── axi4lite_blackbox_data.sv   -- `assert property`, AXI ports only: end-to-end data check (symbolic address)

@@ -7,9 +7,11 @@ Usage (make formal-verify runs it after every proof):
 The expected numbers come from formal/expected_counts.txt, looked up by the
 report's file name. Exit status 0 only if the report passes.
 
-What is read, and fails closed: the rows Questa prints for a failing property
-were never seen when this was written, so these parts must look exactly as in
-a clean report (formal/reference/), and anything else in them is an error:
+What is read, and fails closed: only two kinds of failure have been seen in a
+real report (formal/reference/failing_*.txt), so these parts must look exactly
+as in a clean report, and anything else in them is an error. The counts alone
+are not enough: Questa counts a vacuous assert under Proven, with a Vacuous row
+below it.
   - the Property Summary block: only the clean rows, each once, with the
     expected counts;
   - the Targets <x> (n) section headings: only Proven, Covered and Covered
