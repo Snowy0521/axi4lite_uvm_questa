@@ -14,7 +14,7 @@ import axi4lite_pkg::*;
 module tb_top;
 
   logic clk;
-  logic rst_n;
+  logic rst_n = 1'b1;   // see the reset block below
 
   // ------------------------------------------------------------------
   // Clock generation: 100 MHz (10ns period)
@@ -23,14 +23,18 @@ module tb_top;
   always #5 clk = ~clk;
 
   // ------------------------------------------------------------------
-  // Reset generation: held low for a few cycles at the start
+  // Reset generation: held low for 3 posedges at the start.
+  // rst_n is 1 at time 0 and drops at 1 ns: a real 1 -> 0 edge after every
+  // process has started and before the first posedge (5 ns). `rst_n = 0` in
+  // an initial at time 0 is a race with the DUT's `negedge rst_n` event
+  // control, and a declaration initialiser of 0 gives no edge at all, so the
+  // DUT's flops could still be X at the first posedge. Released at a negedge,
+  // so no clock edge sees rst_n change.
   // ------------------------------------------------------------------
   initial begin
-    rst_n = 0;
+    #1 rst_n = 1'b0;
     repeat (3) @(posedge clk);
-    rst_n = 1;
-
-    @(posedge clk);
+    @(negedge clk) rst_n = 1'b1;
   end
 
   // ------------------------------------------------------------------
@@ -66,6 +70,29 @@ module tb_top;
     .rvalid  (intf.rvalid),
     .rready  (intf.rready)
   );
+
+  // ------------------------------------------------------------------
+  // The formal checkers, bound into this DUT instance, so every UVM test also
+  // runs every assertion; a failing one is a "** Error", which the regression
+  // counts. An instance bind, not a module-type bind: formal_tb instantiates
+  // the same checkers, and a module-type bind would reach its DUT too, since
+  // both are compiled into one library. The connections and parameters resolve
+  // in the DUT's scope (its ports, its regfile, its parameters).
+  // axi4lite_assumptions checks that the UVM driver is a legal master.
+  // axi4lite_covers is not bound: covers are formal sign-off, not a UVM goal.
+  // NO_UVM_CHECKERS (make UVM_CHECKERS=no) builds without them: mutation
+  // testing scores the UVM bench on its own that way.
+  // ------------------------------------------------------------------
+`ifndef NO_UVM_CHECKERS
+  bind dut axi4lite_assumptions #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH))
+    u_assumptions (.*);
+  bind dut axi4lite_blackbox_protocol #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .NUM_REGS(NUM_REGS))
+    u_bb_protocol (.*);
+  bind dut axi4lite_blackbox_data #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .NUM_REGS(NUM_REGS))
+    u_bb_data (.*);
+  bind dut axi4lite_whitebox_regfile #(.ADDR_WIDTH(ADDR_WIDTH), .DATA_WIDTH(DATA_WIDTH), .NUM_REGS(NUM_REGS))
+    u_wb_regfile (.*);
+`endif
 
   // ------------------------------------------------------------------
   // UVM setup + test launch

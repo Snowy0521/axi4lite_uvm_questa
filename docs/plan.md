@@ -210,7 +210,11 @@ checker, and the checker is not rewritten for a weaker simulator.
 
 ## 3. UVM environment
 
-Questa-only (UVM 1.2 shipped with Questa, `+define+UVM_NO_DPI`). There is no Verilator UVM flow.
+Questa-only (UVM 1.2 shipped with Questa, `+define+UVM_NO_DPI`). There is no Verilator UVM flow. Known limit, so nobody
+spends time on one: under Verilator with the 1800.2 kit the bench builds, but every test ends in `DRV_TIMEOUT` waiting
+for BVALID, the unchanged bench of step 4 included. A plausible cause is clocking-block input sampling: if inputs are
+read after the edge rather than at `#1step`, the one-cycle BVALID pulse (when BREADY is already high) is gone by the
+time the driver looks.
 
 ### 3.1 Transactions (done)
 
@@ -229,7 +233,7 @@ Planned field (step 5c): `stamp`, the sample index of the event that orders the 
   offsets to the address.
 - **Monitor (done):** rebuilds every transaction from the pins through `mon_cb`. It counts raw handshakes per
   channel, and `check_phase` requires every request answered exactly once and every answer published.
-- **Monitor X check (planned, step 5a):** today the UVM bench cannot see an X on a DUT output.
+- **Monitor X check (implemented, step 5a; Questa run pending):** today the UVM bench cannot see an X on a DUT output.
   `axi4lite_txn.rdata` / `.resp` are 2-state `bit`, so the monitor's copy from `mon_cb` turns X into 0, and an X
   response even reads as OKAY. The bound `a_no_x_*` checks see it, but mutation scoring builds without them
   (`UVM_CHECKERS=no`). So the monitor itself raises `MON_X` (`uvm_error`) on `$isunknown`, with **exactly the
@@ -245,7 +249,7 @@ Planned field (step 5c): `stamp`, the sample index of the event that orders the 
 - **Scoreboard (done):** shadow register model, WSTRB merge, OKAY in range / SLVERR out of range, read data
   against the shadow. `num_regs` comes from config_db, and a missing value is fatal.
 - **Coverage collector (done):** §3.6.
-- **Formal checkers bound into the DUT (planned, step 5a):** an **instance** bind, written inside `tb_top`, not a
+- **Formal checkers bound into the DUT (implemented, step 5a; Questa run pending):** an **instance** bind, written inside `tb_top`, not a
   module-type bind:
   ```systemverilog
   `ifndef NO_UVM_CHECKERS
@@ -268,6 +272,11 @@ Planned field (step 5c): `stamp`, the sample index of the event that orders the 
   **informational in UVM**: not part of any gate (the covergroup gate reads `TOTAL COVERGROUP COVERAGE`, and the
   code-coverage awk reads `/tb_top/dut` only). One can sit at 0 in a seed whose `sym_idx` never got a non-zero
   read; do not "fix" that.
+  What the bound asserts can find: each is proven in formal, for any master (`formal-verify-noassume`), so on the
+  clean DUT one can fire in UVM only through what formal does not model, X in 4-state simulation or the reset timing
+  of `tb_top`. Their new value is elsewhere: the bound assumptions check that the UVM *driver* is a legal master, and
+  the asserts guard an RTL change before it is re-proven. A firing one in UVM is first a question about the testbench
+  or 4-state behaviour, not about the DUT.
   A failing property is a `** Error`, not a `UVM_ERROR`, and the regression counts it (§3.7). `UVM_CHECKERS=no`
   (which sets `+define+NO_UVM_CHECKERS`) builds without them; mutation scoring uses it to measure the UVM bench
   alone (§4).
@@ -471,24 +480,25 @@ the model alone.
 
 ### 3.7 Regression
 
-**Today (done):** `make uvm-sweep TEST=<t> N=20` builds once, runs seeds 1..N with `-sv_seed`, merges the passing
-seeds' UCDBs and gates merged covergroup coverage at `COV_GOAL` (100 for random and unaligned, 0 for smoke).
-It prints DUT code coverage but does not gate it.
-
-**Planned (step 5a), `scripts/regress.py`:**
+**`scripts/regress.py` (implemented, step 5a; Questa run pending)**, `make regress [N=20] [TESTS=a,b] [DATA_WIDTH=64]
+[UVM_CHECKERS=no]`; `make uvm-sweep TEST=<t>` runs it for one test. It replaces the shell loop of the old
+`uvm-sweep` and its `COV_GOAL` variable (the goals are in `regress.py`'s `TESTS` table: 100 for random and
+unaligned, 0 for smoke):
 - One build. Every directed test once, then N seeds of each random test.
 - A run passes only if the UVM report summary is present (a missing summary means a crash or hang),
   `UVM_ERROR = UVM_FATAL = 0`, and there is no `** Error` / `** Fatal` (bound assertions, `$fatal`). These rules
   live in **one** shared module, `scripts/questa_log.py`, written in step 4 for mutation scoring and reused here.
   Two copies of "what counts as a failure" would drift, as the file lists did.
-- Merge passing runs only. Keep the per-test gates (`COV_GOAL` per test, the concurrency bins per test), and also
+- Merge passing runs only. Keep the per-test gates (the goal per test in `regress.py`'s `TESTS` table, the concurrency
+  bins per test), and also
   print one figure merged across all tests.
-- Write each run's result and its full reproduce command line to `build/sim/summary.log`.
+- Write each run's result and its full reproduce command line to `build/regress/summary.log`.
 - **Seed check:** the monitor keeps a running FNV-1a hash over every transaction it publishes (all fields, including
   `aw_w_order` and `resp_stall`, so the driver's randomness counts too), and prints `FINGERPRINT <hex>` in
-  `report_phase`. For each test in `RANDOM_TESTS`, N seeds must give N distinct fingerprints. Directed tests
-  (smoke, oor-sweep) are exempt by design: do **not** "fix" a constant smoke fingerprint by adding randomness.
-  `$get_initial_random_seed()` is printed for information only; it is a Questa extension, not IEEE 1800.
+  `report_phase`. For each random test (marked in `regress.py`'s `TESTS` table), N seeds must give N distinct
+  fingerprints. Directed tests (smoke, oor-sweep) are exempt by design: do **not** "fix" a constant smoke
+  fingerprint by adding randomness. (`$get_initial_random_seed()` is not printed: it is a Questa extension, and the
+  fingerprint already shows whether the seed reached the stimulus.)
   This check would have caught the `+ntb_random_seed` bug, since every seed then produced identical traffic.
 
 ### 3.8 Code coverage
@@ -551,7 +561,7 @@ surprise worth a look. K = killed, S = survives, E = equivalent (no observable d
 | M06 | BVALID dropped before BREADY | `a_bvalid_stable`; driver `DRV_TIMEOUT` (with a B stall it waits for BVALID again after raising BREADY) | K / K |
 | M07 | RDATA changes while RVALID && !RREADY | `a_rvalid_stable`; scoreboard if the value at the handshake is wrong | K / K |
 | M08 | W before AW loses the data: the late AW clears the latched write data | e2e; `cp_aw_w_order` stimulus | K / K |
-| M09a | Reset branch does not clear the regfile at all | reset asserts, e2e; monitor X check | **S** / K, see note |
+| M09a | Reset branch does not clear the regfile at all | reset asserts, e2e; monitor X check (`MON_X`, since 5a) | K / K (simulation: S before 5a), see note |
 | M09b | Regfile cleared at the first reset only (a `reset_seen` flop in the mutant skips the clear afterwards) | e2e (qverify's free `rst_n` resets mid-run); `axi4lite_reset_test` | **S** / K, see note |
 | M10 | Read decode rounds an unaligned address up to the next word: invisible to aligned traffic | e2e; only the unaligned test in simulation | K / K |
 | M11 | One data bit stuck at 0 in one register | e2e (symbolic `sym_idx`); `cp_wdata` patterns | K / K |
@@ -607,7 +617,7 @@ Questa can be traced to one change.
 | 2 | Structure: root `Makefile`, `rtl.f` / `tb.f` / `formal.f`, outputs in `build/`, `formal/run_formal.tcl`, VCD behind `+vcd`, `QUESTA_UVM_HOME` from the `vsim` on PATH (not `UVM_HOME`), `.gitignore`, README layout (done; Questa checklist passed 2026-11-04 on Questa 2024.3, 64-bit no-assume proof 549 s) | Questa checklist passes unchanged, after `git clean -fdx sim/` removes the old flow's outputs: `simple`; `uvm` smoke with a UVM-1.2 banner, and with `PLUSARGS=+vcd`; `uvm-sweep TEST=axi4lite_random_test N=3` at 32 and 64 bits; `formal-sweep N=3`; `formal-coverage N=3`; `formal-verify-all` 57/57, 65/65 proven, 43/43 covered; `formal-verify-noassume` all proven at 32 and 64 bits; the four `build/formal/formal_report*.txt` copied outside the repo (the reference for the step 3 self-check); outputs only under `build/` (`git status --short --ignored`); nothing left after `make clean` |
 | 3 | `make lint` (Verilator `-Wall` on the RTL with the two `WIDTHEXPAND` fixed and the two `UNUSEDSIGNAL` waived bit-precisely in `rtl/axi4lite_slave.vlt` (lint only); slang over RTL + `formal/`, both defines, both widths, `--timescale 1ns/1ps`), `make check` (lint + Verilator smoke on `*** TEST PASSED ***`, both widths), formal self-check (implemented; Questa checklist passed 2026-11-06: both throwaway mutation runs fail the self-check as intended (M04: 3 fired, 2 uncoverable; vacuous `a_bresp_legal_value`: `Vacuous (1)`), kept as `formal/reference/failing_*.txt`; all four clean proofs pass it) | `make check` passes locally; `formal-verify-all` and `formal-verify-noassume` at both widths still 57 / 65 proven, 43 covered after the RTL cast change; self-check passes on all four configurations |
 | 4 | `scripts/questa_log.py` (shared run classifier); `formal_tb`'s simulation reset in the `#1` drop / negedge release form, plus a rare mid-run reset; mutations M01–M20 (21 patches: M09a / M09b) on the current testbench (done: first `make mutate` 2026-11-09, 22 runs, 0 differ from the baseline, 0 errors; table in `docs/mutation_baseline.md`; `formal-sweep N=3` passes with the mid-run reset) | Baseline table: every mutant scored per flow and compared with the "expected at baseline" column (§4); clean design passes every flow first; `formal-sweep` still passes with the mid-run reset |
-| 5a | `scripts/regress.py` (reusing `questa_log.py`), monitor `FINGERPRINT`, monitor X check (`MON_X`), master-signal initialisers in the interface, `tb_top` power-on reset as `rst_n = 1'b1` / `#1` drop / release at a negedge after 3 posedges, formal checkers bound into `tb_top.dut` (instance bind, `NO_UVM_CHECKERS` switch). No new tests | Existing tests pass on 20 seeds in both widths with the bound checkers silent, **including no assume firing at power-on**; no `MON_X`; coverage numbers unchanged; distinct fingerprints for the random tests |
+| 5a | (implemented; Questa run pending) `scripts/regress.py` (reusing `questa_log.py`), monitor `FINGERPRINT`, monitor X check (`MON_X`), master-signal initialisers in the interface, `tb_top` power-on reset as `rst_n = 1'b1` / `#1` drop / release at a negedge after 3 posedges, formal checkers bound into `tb_top.dut` (instance bind, `NO_UVM_CHECKERS` switch). No new tests | Existing tests pass on 20 seeds in both widths with the bound checkers silent, **including no assume firing at power-on**; no `MON_X`; coverage numbers unchanged; distinct fingerprints for the random tests |
 | 5b | Reset: `rst_n` moved into the interface (`= 1'b1`, power-on drop at `#1`), `apply_reset` / `reset_ctrl`, `clear_master_valids`, driver kill path and `wait_reset_release`, monitor abort + `reset_ap`, scoreboard clear, `cp_reset_phase`, `axi4lite_reset_test` | Reset test and existing tests pass on 20 seeds in both widths; every `cp_reset_phase` bin hit, `idle` including resets that land while the driver is blocked in `get_next_item`; no `m_*valid_low_in_reset` firing; M09b killed by `axi4lite_reset_test` |
 | 5c | Concurrency: `drv_mode`, `wr_sqr` / `rd_sqr` / `rd_item_port`, `start_delay`, monitor `cyc` / `stamp` / `commit_ap` (write commits), scoreboard `visible()` + full per-register history (the only write path, all modes; cleared by `clear_on_reset()`), `cp_rw_overlap`, formal covers `cp_rw_fire_before_ar` / `cp_rw_fire_on_ar_edge` and the blackbox assert `a_e2e_read_order` (`expected_counts.txt`: covers 43 → 45, asserts 57 → 58 and 65 → 66), `axi4lite_rw_concurrency_test`, `axi4lite_oor_sweep_test`; then the directed tests the step 4 survivors call for | Concurrency test closes both boundary bins; **the existing random / unaligned sweeps still give 20 / 20 seeds and 100% merged coverage in both widths** (the regression for the new scoreboard write path); formal self-check 58 / 66 asserts, 45 covers; M19 now fires `a_e2e_read_order` as well |
 | 6 | Re-run mutations, README results | Table updated; every survivor explained (expected survivor, or equivalent); M09a, M09b and M19 now killed in simulation |

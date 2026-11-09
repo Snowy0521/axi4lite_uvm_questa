@@ -50,8 +50,64 @@ class axi4lite_monitor extends uvm_monitor;
       monitor_write();
       monitor_read();
       count_handshakes();
+      check_x();
     join
   endtask
+
+  // No X on a DUT output a master can see. The transaction fields are 2-state
+  // (bit), so an X copied into one silently becomes 0 and could match what the
+  // scoreboard expects; it is caught here, at the pins, before it is copied.
+  // The same conditions as the formal a_no_x_* asserts and
+  // a_rvalid_requires_rdata (formal/axi4lite_blackbox_protocol.sv): if either
+  // side changes, change the other in the same commit. Those asserts are not
+  // in a UVM_CHECKERS=no build; this check always is.
+  task check_x();
+    forever begin
+      @(vif.mon_cb);
+      if (vif.rst_n === 1'b1) begin
+        string bad = "";
+        if ($isunknown(vif.mon_cb.awready)) bad = {bad, " awready"};
+        if ($isunknown(vif.mon_cb.wready))  bad = {bad, " wready"};
+        if ($isunknown(vif.mon_cb.arready)) bad = {bad, " arready"};
+        if ($isunknown(vif.mon_cb.bvalid))  bad = {bad, " bvalid"};
+        if ($isunknown(vif.mon_cb.rvalid))  bad = {bad, " rvalid"};
+        if (vif.mon_cb.bvalid === 1'b1 && $isunknown(vif.mon_cb.bresp)) bad = {bad, " bresp"};
+        if (vif.mon_cb.rvalid === 1'b1 && $isunknown(vif.mon_cb.rresp)) bad = {bad, " rresp"};
+        if (vif.mon_cb.rvalid === 1'b1 && $isunknown(vif.mon_cb.rdata)) bad = {bad, " rdata"};
+        if (bad != "")
+          `uvm_error("MON_X", {"X/Z on DUT output(s):", bad})
+      end
+    end
+  endtask
+
+  // Fingerprint of everything published on ap: FNV-1a over every field,
+  // including aw_w_order and resp_stall, so the driver's own randomness counts
+  // too. Printed in report_phase; the regression requires different seeds of
+  // a random test to give different fingerprints (a seed that is not applied
+  // makes every run identical).
+  local bit [31:0] fp = 32'h811c_9dc5;
+
+  local function void fp_word(bit [31:0] w);
+    for (int i = 0; i < 4; i++) fp = (fp ^ 32'(w[i*8 +: 8])) * 32'h0100_0193;
+  endfunction
+
+  local function void fingerprint(axi4lite_txn tr);
+    fp_word(32'(tr.op));
+    fp_word(32'(tr.addr));
+    for (int i = 0; i < DATA_WIDTH; i += 32) begin
+      fp_word(tr.wdata[i +: 32]);
+      fp_word(tr.rdata[i +: 32]);
+    end
+    fp_word(32'(tr.wstrb));
+    fp_word(32'(tr.resp));
+    fp_word(32'(tr.aw_w_order));
+    fp_word(tr.resp_stall);
+  endfunction
+
+  function void report_phase(uvm_phase phase);
+    super.report_phase(phase);
+    `uvm_info("FINGERPRINT", $sformatf("FINGERPRINT %08h (%0d transactions)", fp, n_wr_pub + n_rd_pub), UVM_NONE)
+  endfunction
 
   // Samples the same edges as monitor_write/monitor_read.
   task count_handshakes();
@@ -164,6 +220,7 @@ class axi4lite_monitor extends uvm_monitor;
 
       `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_HIGH)
       n_wr_pub++;
+      fingerprint(tr);
       ap.write(tr);
     end
   endtask
@@ -211,6 +268,7 @@ class axi4lite_monitor extends uvm_monitor;
 
       `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_HIGH)
       n_rd_pub++;
+      fingerprint(tr);
       ap.write(tr);
     end
   endtask

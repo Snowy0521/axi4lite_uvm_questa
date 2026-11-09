@@ -216,21 +216,26 @@ make clean                                     # removes build/
   are still checked. `check_phase` then errors if any request went
   unanswered or a response came unasked.
 
-**Regression and sign-off.** `make uvm-sweep` compiles once and runs seeds
-1..N, parsing each run's UVM report summary. A seed with no summary
-(crash or hang) counts as a failure. Each seed saves its coverage to a
-UCDB; the passing seeds are merged with `vcover` (`build/cov/uvm/`,
-`merged_cvg.txt` lists the bins still at zero). Sign-off, all three
-enforced by the script:
+**Regression and sign-off.** `make regress` (`scripts/regress.py`) compiles
+once, runs the smoke test once and seeds 1..N of each random test, with the
+formal checkers bound into the DUT. A run passes only with a complete UVM
+report summary, zero `UVM_ERROR` / `UVM_FATAL` and no simulator `** Error`
+(a failing bound assertion reports that way); a run with no summary (crash or
+hang) is a failure. Coverage is merged with `vcover` from passing runs only
+(`build/cov/<test>_cvg.txt` lists the bins still at zero). `make uvm-sweep
+TEST=<t>` does the same for one test. Sign-off, all enforced by the script:
 
-1. zero `UVM_ERROR` / `UVM_FATAL` in every seed,
-2. 100% functional coverage **merged over the sweep** (`COV_GOAL`, 100
-   for `axi4lite_random_test` and `axi4lite_unaligned_test`; the smoke test
-   only exercises in-range full-word traffic, so it isn't held to it).
+1. every run passes, by the rule above,
+2. 100% functional coverage **merged over the seeds** of
+   `axi4lite_random_test` and of `axi4lite_unaligned_test`; the smoke test
+   only exercises in-range full-word traffic, so it isn't held to it.
    One seed of `NUM_TXNS` writes isn't expected to hit every register x
    op and every pattern; the regression is,
 3. no outstanding transactions at the end of every test (a `UVM_ERROR`
-   from the monitor's `check_phase`, so it falls under 1).
+   from the monitor's `check_phase`, so it falls under 1),
+4. no X on a DUT output (`MON_X` from the monitor, a `UVM_ERROR`),
+5. different seeds of a random test give different monitor fingerprints, so
+   the seed really reaches the stimulus.
 
 ## UVM results
 
