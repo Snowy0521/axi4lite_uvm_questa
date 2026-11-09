@@ -1,0 +1,22 @@
+# M09b: Regfile cleared at the first reset only
+# baseline 32: S K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -68,6 +68,7 @@
+   // present.
+   // -----------------------------------------------------------------------
+   logic aw_hs_done, w_hs_done;
++  logic reset_seen = 1'b0;
+   logic [ADDR_WIDTH-1:0]   awaddr_latched;
+   logic [DATA_WIDTH-1:0]   wdata_latched;
+   logic [DATA_WIDTH/8-1:0] wstrb_latched;
+@@ -92,7 +93,8 @@
+       // simulator-specific uninitialized-memory behavior (2-state tools
+       // read 0, 4-state tools read X) -- deterministic, portable value
+       // for a read of any never-written register, on every simulator.
+-      regfile        <= '{default: '0};
++      if (!reset_seen) regfile <= '{default: '0};
++      reset_seen     <= 1'b1;
+     end else begin
+       // latch AW
+       if (awvalid && awready) begin // cycle N

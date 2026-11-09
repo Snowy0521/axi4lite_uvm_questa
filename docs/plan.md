@@ -104,6 +104,15 @@ a write arriving while B is pending, write-then-read-back, and reset in the midd
 `cp_rw_fire_before_ar` (BVALID first seen high at the AR handshake sample, `m == k`) and `cp_rw_fire_on_ar_edge`
 (BVALID first seen high one sample after it, `m == k + 1`). They raise the expected cover count to 45.
 
+**Planned (step 5c): a blackbox assert of the ordering rule, `a_e2e_read_order`.** The first mutation run showed that
+only the whitebox `a_read_data_matches_regfile` catches M19 (a read that bypasses a write firing on the same edge):
+`a_e2e_read_data` skips every read while a write to `sym_idx` is outstanding at its AR handshake (§2.3), and M19 lives
+entirely in that window. The rule is observable at the ports (spec §5.5, plan §3.4: new value iff `m <= k`), so a DUT
+with the same ports but a different internal register file would pass formal with that bug. The assert records the
+merged value of an in-range write to `sym_idx` at its BVALID rise, and checks a read of `sym_idx` whose AR handshake
+falls between that rise and the write's B handshake: on or after the rise it must return the new value, and on the
+edge before it the old one. It reuses the e2e reference model. It adds one assert: 57 → 58 and 65 → 66.
+
 ### 2.7 Expected counts
 
 These are the numbers the formal self-check (§2.8) compares against. Derivation for `assert` (32-bit / 64-bit):
@@ -146,7 +155,11 @@ scoring (§4) needs this check on the clean design as its reference.
   Warning must have n = 0; the section counts must agree with the summary, including the warned count; the proof
   radius section must say all targets were resolved; and the assumption sections for bounded proofs and for
   unsatisfiable sanity checks must say they are empty (sign-off is on full proofs).
-- A changed "Covered with Warning" count is printed as a note, not a failure (§2.7).
+- A changed "Covered with Warning" count is printed as a note, not a failure (§2.7); it moves with the design (33
+  clean, 36 and 31 in the two failing reports).
+- **qverify's exit status says nothing about the proof.** It exits 0 on a design with fired asserts, so `make
+  formal-verify` means "proven" only because of this self-check, and mutation scoring takes its verdict from the
+  report, never from the exit status.
 - The Makefile deletes the report before qverify starts, so a run that stops without writing one cannot pass on an
   earlier report.
 - `make check` tests the script without Questa (`scripts/test_check_formal_report.py`): the four clean reports must
@@ -176,13 +189,11 @@ Update §2.7 in the same commit.
 `make formal` / `formal-sweep`: `formal_tb` without `QUESTA_FORMAL`, with `axi4lite_formal_driver.sv` as a random
 legal master under vsim. This is not a proof.
 
-**Mid-run reset (planned, step 4):** today reset happens only at time 0 (`formal_tb.sv:106-110`), with the same
-time-0 race as `tb_top` (`rst_n = 0` in an `initial`, §3.3). In the same edit the power-on part becomes
-`rst_n = 1'b1; #1 rst_n = 1'b0; repeat (3) @(posedge clk); @(negedge clk) rst_n = 1'b1;` inside the
-simulation-only `initial`. The release moves to a negedge as well: today `repeat (3) @(posedge clk); rst_n = 1;`
-releases on the posedge itself, so whether the DUT takes its reset branch at that edge, and whether that edge's
-`default disable iff (!rst_n)` attempts are disabled, depends on process order. The power-on reset stays 3
-posedges long, and no clock edge sees `rst_n` change. A declaration initialiser is not possible
+**Reset (done):** power-on is `rst_n = 1'b1; #1 rst_n = 1'b0; repeat (3) @(posedge clk); @(negedge clk) rst_n = 1'b1;`
+inside the simulation-only `initial`, which avoids the time-0 race of `rst_n = 0` in an `initial` (§3.3). The release
+is at a negedge as well: releasing on the posedge itself would make the DUT's reset branch at that edge, and that
+edge's `default disable iff (!rst_n)` attempts, depend on process order. The power-on reset stays 3 posedges long,
+and no clock edge sees `rst_n` change. After that, a mid-run reset every 1,000 to 3,000 cycles, 1 to 3 cycles long. A declaration initialiser is not possible
 there: `rst_n` is declared through `` `FTB_FREE`` (`formal_tb.sv:71`), which is an `input` under `QUESTA_FORMAL`.
 The X → 1 at time 0 is not a negedge, and the 1 → 0 at 1 ns is a real one, after every process has started. A rare random
 mid-run reset is added to that simulation-only reset block (inside the existing non-`QUESTA_FORMAL` code), **not**
@@ -499,30 +510,35 @@ missing from this plan, or code proven unreachable.
 
 ---
 
-## 4. Mutation testing (planned, step 4)
+## 4. Mutation testing (done: first run 2026-11-09, `docs/mutation_baseline.md`)
 
-One patch per bug in `mutations/Mnn_*.patch`, first line = description. `scripts/run_mutations.py` /
-`make mutate [ONLY=M02,M05]`:
+One patch per bug in `mutations/Mnn_*.patch`. Line 1 is the description; the `# baseline <width>: <sim> <formal>` lines
+are the expected result of the table below, and `make check` fails if the two disagree. `make check` also compiles
+every mutant at both widths with slang. `scripts/run_mutations.py` / `make mutate [ONLY=M02,M05] [MUT_SEEDS=5]`:
 
 - Apply each patch with `patch -p1` to a throwaway copy in `build/mutation/<id>/`, never to the repo, and check
   that a file really changed.
-- **Behaviour-difference check first:** an output signature over VALID-qualified outputs only (`bresp` only while
-  `bvalid`, `rdata` / `rresp` only while `rvalid`, plus the VALIDs and READYs). It uses the `formal_tb` random driver
-  under vsim, which reaches concurrency and backpressure, not UVM. A signature equal to the clean one is
-  reported as "no difference seen", then confirmed with formal and by reading the patch.
-- **Simulation** is scored black-box (`UVM_CHECKERS=no`). **Formal** is scored with qverify, using the §2.8
-  self-check on the clean design as the reference. The results go in separate columns. "Killed by formal,
+- **Behaviour-difference check first:** an output signature (`formal/axi4lite_signature.sv`, `make formal-signature`)
+  over VALID-qualified outputs only (`bresp` only while `bvalid`, `rdata` / `rresp` only while `rvalid`, plus the
+  VALIDs and READYs), in 4-state values, over 50,000 cycles on one fixed seed. It uses the `formal_tb` random driver
+  under vsim, which reaches concurrency and backpressure, not UVM. A signature equal to the clean one is reported as
+  "no difference seen", then confirmed with formal and by reading the patch.
+- **Simulation** is scored black-box: at this step no checkers are bound into the UVM bench, so nothing needs
+  switching off; from 5a the flow builds with `UVM_CHECKERS=no`. It runs the smoke test, then `MUT_SEEDS` seeds each of
+  the random and unaligned tests, and stops at the first failure. **Formal** is scored with qverify from the report
+  alone (§2.8), and the clean design must pass the self-check first. The results go in separate columns. "Killed by formal,
   survived simulation" is the column that decides which directed test or stimulus change to add (§3.5).
 - Default width 32. Width-sensitive mutants (M18) also run at 64.
-- Each cell of `build/mutation/summary.md` names the first failing check. The table goes into the README.
+- Each cell of `build/mutation/summary.md` names the first failing check, or every fired target. Each row compares the
+  result with the expected baseline, and the run exits 1 on any difference or error. The table goes into the README.
 - "Did this run pass" uses `scripts/questa_log.py`, the one shared log classifier (summary present,
   `UVM_ERROR = UVM_FATAL = 0`, no `** Error` / `** Fatal`), which `regress.py` reuses in step 5a (§3.7).
 - The behaviour-difference check and `formal-sweep` both use `formal_tb` with the rare mid-run reset of §2.9, so
   M09b shows a difference there. The formal column stays authoritative for M09a / M09b / M20. M20 must still show no
   difference with the reset added; that is what it is for.
 
-**Expected at baseline** (step 4: the current testbench, no reset test, no concurrency, checkers not bound) is
-recorded *before* the run. A survivor not marked here is a finding. A marked survivor that gets killed is a
+The check names in the table below are predictions: score what actually fires. **Expected at baseline** (step 4: the
+current testbench, no reset test, no concurrency, checkers not bound) is recorded *before* the run. A survivor not marked here is a finding. A marked survivor that gets killed is a
 surprise worth a look. K = killed, S = survives, E = equivalent (no observable difference).
 
 | # | Mutation | Expected to be caught by | Baseline sim / formal |
@@ -530,17 +546,17 @@ surprise worth a look. K = killed, S = survives, E = equivalent (no observable d
 | M01 | Out-of-range write aliased onto `regfile[idx[3:0]]`, still SLVERR | `a_e2e_read_data`, frame condition; scoreboard (read of another register), oor-sweep test | K / K |
 | M02 | One WSTRB lane ignored (always written) | `a_write_disabled_byte_preserved`; scoreboard | K / K |
 | M03 | WSTRB lanes reversed | whitebox strobe checks, e2e; scoreboard | K / K |
-| M04 | Out-of-range access answers OKAY | `a_write_slverr_out_of_range` / `a_read_slverr_out_of_range`; scoreboard, `cx_addr_resp` illegal bins | K / K |
-| M05 | Range check off by one (last register out of range, or first out-of-range word accepted) | e2e, response checks; `cp_word` (last register, `first_oor`) stimulus | K / K |
+| M04 | Out-of-range access answers OKAY | `a_write_slverr_out_of_range` / `a_read_slverr_out_of_range`, `a_e2e_read_data` (seen in a real run: `sym_idx` can be an out-of-range word); scoreboard, `cx_addr_resp` illegal bins | K / K |
+| M05 | Range check off by one: the first out-of-range word is accepted | e2e, response checks; `cp_word` (`first_oor`) stimulus | K / K |
 | M06 | BVALID dropped before BREADY | `a_bvalid_stable`; driver `DRV_TIMEOUT` (with a B stall it waits for BVALID again after raising BREADY) | K / K |
-| M07 | RDATA / RRESP (or BRESP) changes while VALID && !READY | `a_rvalid_stable` / `a_bvalid_stable`; scoreboard if the value at the handshake is wrong | K / K |
-| M08 | W before AW loses the data (or AW before W loses the address) | e2e; `cp_aw_w_order` stimulus | K / K |
+| M07 | RDATA changes while RVALID && !RREADY | `a_rvalid_stable`; scoreboard if the value at the handshake is wrong | K / K |
+| M08 | W before AW loses the data: the late AW clears the latched write data | e2e; `cp_aw_w_order` stimulus | K / K |
 | M09a | Reset branch does not clear the regfile at all | reset asserts, e2e; monitor X check | **S** / K, see note |
 | M09b | Regfile cleared at the first reset only (a `reset_seen` flop in the mutant skips the clear afterwards) | e2e (qverify's free `rst_n` resets mid-run); `axi4lite_reset_test` | **S** / K, see note |
-| M10 | Address decode uses the low address bits (unaligned alias) | e2e; unaligned test | K / K |
+| M10 | Read decode rounds an unaligned address up to the next word: invisible to aligned traffic | e2e; only the unaligned test in simulation | K / K |
 | M11 | One data bit stuck at 0 in one register | e2e (symbolic `sym_idx`); `cp_wdata` patterns | K / K |
-| M12 | Response EXOKAY or DECERR instead of OKAY / SLVERR | `a_bresp_legal_value` / `a_rresp_legal_value`; scoreboard, `cp_resp` illegal bins | K / K |
-| M13 | AWREADY / WREADY not released after the B handshake | `a_awready_when_idle` / `a_wready_when_idle`; `DRV_TIMEOUT` | K / K |
+| M12 | Out-of-range access answers DECERR instead of SLVERR | `a_bresp_legal_value` / `a_rresp_legal_value`; scoreboard, `cp_resp` illegal bins | K / K |
+| M13 | AWREADY not released after a write | `a_awready_when_idle`; `DRV_TIMEOUT` | K / K |
 | M14 | `!bvalid` dropped from the write-fire condition | `a_bvalid_stable`, fifo pairing. Needs a 2nd write while B is pending | **S** / K (until a pipelined driver) |
 | M15 | `arready = 1'b1`: a new AR overwrites a pending R | `a_rvalid_stable`, `a_e2e_read_data`. Needs a 2nd AR while R is pending | **S** / K (same) |
 | M16 | Write fires on `aw_hs_done` alone (stale `wdata_latched`) | `a_bvalid_requires_aw_and_w`, e2e; UVM via the W-late skew | K / K |
@@ -590,8 +606,8 @@ Questa can be traced to one change.
 | 1 | This plan; spec §1 / §5.5 | Plan and spec consistent with the code (counts, line references, rules) |
 | 2 | Structure: root `Makefile`, `rtl.f` / `tb.f` / `formal.f`, outputs in `build/`, `formal/run_formal.tcl`, VCD behind `+vcd`, `QUESTA_UVM_HOME` from the `vsim` on PATH (not `UVM_HOME`), `.gitignore`, README layout (done; Questa checklist passed 2026-11-04 on Questa 2024.3, 64-bit no-assume proof 549 s) | Questa checklist passes unchanged, after `git clean -fdx sim/` removes the old flow's outputs: `simple`; `uvm` smoke with a UVM-1.2 banner, and with `PLUSARGS=+vcd`; `uvm-sweep TEST=axi4lite_random_test N=3` at 32 and 64 bits; `formal-sweep N=3`; `formal-coverage N=3`; `formal-verify-all` 57/57, 65/65 proven, 43/43 covered; `formal-verify-noassume` all proven at 32 and 64 bits; the four `build/formal/formal_report*.txt` copied outside the repo (the reference for the step 3 self-check); outputs only under `build/` (`git status --short --ignored`); nothing left after `make clean` |
 | 3 | `make lint` (Verilator `-Wall` on the RTL with the two `WIDTHEXPAND` fixed and the two `UNUSEDSIGNAL` waived bit-precisely in `rtl/axi4lite_slave.vlt` (lint only); slang over RTL + `formal/`, both defines, both widths, `--timescale 1ns/1ps`), `make check` (lint + Verilator smoke on `*** TEST PASSED ***`, both widths), formal self-check (implemented; Questa checklist passed 2026-11-06: both throwaway mutation runs fail the self-check as intended (M04: 3 fired, 2 uncoverable; vacuous `a_bresp_legal_value`: `Vacuous (1)`), kept as `formal/reference/failing_*.txt`; all four clean proofs pass it) | `make check` passes locally; `formal-verify-all` and `formal-verify-noassume` at both widths still 57 / 65 proven, 43 covered after the RTL cast change; self-check passes on all four configurations |
-| 4 | `scripts/questa_log.py` (shared run classifier); `formal_tb`'s simulation reset in the `#1` drop / negedge release form, plus a rare mid-run reset; mutations M01–M20 (21 patches: M09a / M09b) on the current testbench | Baseline table: every mutant scored per flow and compared with the "expected at baseline" column (§4); clean design passes every flow first; `formal-sweep` still passes with the mid-run reset |
+| 4 | `scripts/questa_log.py` (shared run classifier); `formal_tb`'s simulation reset in the `#1` drop / negedge release form, plus a rare mid-run reset; mutations M01–M20 (21 patches: M09a / M09b) on the current testbench (done: first `make mutate` 2026-11-09, 22 runs, 0 differ from the baseline, 0 errors; table in `docs/mutation_baseline.md`; `formal-sweep N=3` passes with the mid-run reset) | Baseline table: every mutant scored per flow and compared with the "expected at baseline" column (§4); clean design passes every flow first; `formal-sweep` still passes with the mid-run reset |
 | 5a | `scripts/regress.py` (reusing `questa_log.py`), monitor `FINGERPRINT`, monitor X check (`MON_X`), master-signal initialisers in the interface, `tb_top` power-on reset as `rst_n = 1'b1` / `#1` drop / release at a negedge after 3 posedges, formal checkers bound into `tb_top.dut` (instance bind, `NO_UVM_CHECKERS` switch). No new tests | Existing tests pass on 20 seeds in both widths with the bound checkers silent, **including no assume firing at power-on**; no `MON_X`; coverage numbers unchanged; distinct fingerprints for the random tests |
 | 5b | Reset: `rst_n` moved into the interface (`= 1'b1`, power-on drop at `#1`), `apply_reset` / `reset_ctrl`, `clear_master_valids`, driver kill path and `wait_reset_release`, monitor abort + `reset_ap`, scoreboard clear, `cp_reset_phase`, `axi4lite_reset_test` | Reset test and existing tests pass on 20 seeds in both widths; every `cp_reset_phase` bin hit, `idle` including resets that land while the driver is blocked in `get_next_item`; no `m_*valid_low_in_reset` firing; M09b killed by `axi4lite_reset_test` |
-| 5c | Concurrency: `drv_mode`, `wr_sqr` / `rd_sqr` / `rd_item_port`, `start_delay`, monitor `cyc` / `stamp` / `commit_ap` (write commits), scoreboard `visible()` + full per-register history (the only write path, all modes; cleared by `clear_on_reset()`), `cp_rw_overlap`, formal covers `cp_rw_fire_before_ar` / `cp_rw_fire_on_ar_edge` (`expected_counts.txt` 43 → 45), `axi4lite_rw_concurrency_test`, `axi4lite_oor_sweep_test`; then the directed tests the step 4 survivors call for | Concurrency test closes both boundary bins; **the existing random / unaligned sweeps still give 20 / 20 seeds and 100% merged coverage in both widths** (the regression for the new scoreboard write path); formal self-check 45 covers |
+| 5c | Concurrency: `drv_mode`, `wr_sqr` / `rd_sqr` / `rd_item_port`, `start_delay`, monitor `cyc` / `stamp` / `commit_ap` (write commits), scoreboard `visible()` + full per-register history (the only write path, all modes; cleared by `clear_on_reset()`), `cp_rw_overlap`, formal covers `cp_rw_fire_before_ar` / `cp_rw_fire_on_ar_edge` and the blackbox assert `a_e2e_read_order` (`expected_counts.txt`: covers 43 → 45, asserts 57 → 58 and 65 → 66), `axi4lite_rw_concurrency_test`, `axi4lite_oor_sweep_test`; then the directed tests the step 4 survivors call for | Concurrency test closes both boundary bins; **the existing random / unaligned sweeps still give 20 / 20 seeds and 100% merged coverage in both widths** (the regression for the new scoreboard write path); formal self-check 58 / 66 asserts, 45 covers; M19 now fires `a_e2e_read_order` as well |
 | 6 | Re-run mutations, README results | Table updated; every survivor explained (expected survivor, or equivalent); M09a, M09b and M19 now killed in simulation |

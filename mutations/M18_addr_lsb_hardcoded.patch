@@ -1,0 +1,14 @@
+# M18: ADDR_LSB hardcoded to 2
+# baseline 32: E E
+# baseline 64: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -55,7 +55,7 @@
+ 	  else $fatal(1, "axi4lite_slave: DATA_WIDTH=%0d is not legal, must be 32 or 64", DATA_WIDTH);
+   end   
+ 
+-  localparam int ADDR_LSB = $clog2(DATA_WIDTH / 8);
++  localparam int ADDR_LSB = 2;
+   // -----------------------------------------------------------------------
+   // Register file
+   // -----------------------------------------------------------------------

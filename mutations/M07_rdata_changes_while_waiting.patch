@@ -1,0 +1,13 @@
+# M07: RDATA changes while RVALID && !RREADY
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -152,6 +152,8 @@
+         rvalid <= 1'b1;
+       end else if (rvalid && rready) begin
+         rvalid <= 1'b0;
++      end else if (rvalid) begin
++        rdata <= ~rdata;
+       end
+     end
+   end

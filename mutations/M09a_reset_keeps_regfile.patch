@@ -1,0 +1,12 @@
+# M09a: Reset branch does not clear the regfile at all
+# baseline 32: S K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -92,7 +92,6 @@
+       // simulator-specific uninitialized-memory behavior (2-state tools
+       // read 0, 4-state tools read X) -- deterministic, portable value
+       // for a read of any never-written register, on every simulator.
+-      regfile        <= '{default: '0};
+     end else begin
+       // latch AW
+       if (awvalid && awready) begin // cycle N

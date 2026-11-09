@@ -1,0 +1,20 @@
+# M20: Reset does not clear rdata / bresp
+# baseline 32: E E
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -86,7 +86,6 @@
+ 
+       // part of the output signals
+       bvalid         <= 1'b0;
+-      bresp          <= AXI_RESP_OKAY;
+ 
+       // Register file: explicit reset removes reliance on
+       // simulator-specific uninitialized-memory behavior (2-state tools
+@@ -137,7 +136,6 @@
+   always_ff @(posedge clk or negedge rst_n) begin
+     if (!rst_n) begin
+       rvalid <= 1'b0;
+-      rdata  <= '0;
+       rresp  <= AXI_RESP_OKAY;
+     end else begin
+       if (arvalid && arready) begin

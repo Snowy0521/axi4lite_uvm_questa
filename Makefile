@@ -17,6 +17,12 @@
 #   make smoke      tb_simple.sv under Verilator, DATA_WIDTH=32|64
 #   make selfcheck-test  tests of scripts/check_formal_report.py against
 #                   formal/reference/ and damaged copies of it
+#   make mutations-test  every patch in mutations/ applies and compiles, and its
+#                   baseline matches docs/plan.md; scripts/questa_log.py tests
+#
+# Mutation testing (needs Questa; about 2 hours for all of mutations/):
+#   make mutate [ONLY=M02,M05] [MUT_SEEDS=5]
+# writes build/mutation/summary.md. See scripts/run_mutations.py.
 #
 # Requires vlib/vlog/vopt/vsim/qverify on PATH (source Questa's setup
 # script first, e.g. add .../questasim/linux_x86_64 and
@@ -79,9 +85,10 @@ COV_GOAL  ?= $(if $(filter axi4lite_random_test axi4lite_unaligned_test,$(TEST))
 RTL_F      := rtl/rtl.f
 TB_F       := tb/tb.f
 FORMAL_F   := formal/formal.f
-# The random legal master for flow #2 only; QUESTA_FORMAL compiles it out,
-# so it is not in formal.f (which is exactly what qverify compiles).
-FORMAL_DRV := formal/axi4lite_formal_driver.sv
+# Flow #2 only, compiled out by QUESTA_FORMAL, so not in formal.f (which is
+# exactly what qverify compiles): the random legal master and the behaviour
+# signature used by mutation testing.
+FORMAL_DRV := formal/axi4lite_formal_driver.sv formal/axi4lite_signature.sv
 
 BUILD          := build
 SIM_DIR        := $(BUILD)/sim
@@ -138,7 +145,8 @@ check:
 	$(MAKE) --no-print-directory smoke DATA_WIDTH=32
 	$(MAKE) --no-print-directory smoke DATA_WIDTH=64
 	$(MAKE) --no-print-directory selfcheck-test
-	@echo "CHECK PASSED: lint, smoke (32- and 64-bit), formal self-check tests"
+	$(MAKE) --no-print-directory mutations-test
+	@echo "CHECK PASSED: lint, smoke (32- and 64-bit), formal self-check and mutation tests"
 
 lint: lint-verilator lint-slang
 
@@ -183,6 +191,9 @@ smoke:
 
 selfcheck-test:
 	$(PYTHON) scripts/test_check_formal_report.py
+
+mutations-test:
+	$(PYTHON) scripts/test_mutations.py
 
 # ============================================================================
 # Shared library setup -- just vlib+vmap, nothing UVM/test-specific about it.
@@ -304,6 +315,13 @@ uvm-sweep: uvm-build
 	  exit 1; \
 	fi
 
+# One run without rebuilding (after uvm-build), log in build/sim/<test>_<seed>.log.
+# Used by scripts/run_mutations.py, which reads the log with scripts/questa_log.py.
+uvm-run:
+	cd $(SIM_DIR) && $(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
+	     +UVM_VERBOSITY=$(UVM_VERBOSITY) $(PLUSARGS) -onfinish exit -l $(TEST)_$(SEED).log \
+	     -do "run -all; quit -f" > /dev/null
+
 # ============================================================================
 # Formal assume/assert/cover environment (flow #2: bounded, randomly-driven
 # simulation, not exhaustive proof -- see formal_tb.sv's header comment)
@@ -315,6 +333,14 @@ formal-build: lib
 
 formal: formal-build
 	cd $(SIM_DIR) && $(VSIM) -c -onfinish exit formal_tb_opt -sv_seed $(SEED) -do "run -all; quit -f"
+
+# Behaviour signature for mutation testing: one fixed seed, log in
+# build/sim/signature.log. Signatures are only compared within one simulator.
+SIG_CYCLES ?= 50000
+
+formal-signature: formal-build
+	cd $(SIM_DIR) && $(VSIM) -c -onfinish exit formal_tb_opt -sv_seed 1 +sim_cycles=$(SIG_CYCLES) \
+	     -l signature.log -do "run -all; quit -f" > /dev/null
 
 formal-sweep: formal-build
 	@fail=0; \
@@ -395,10 +421,19 @@ formal-verify-noassume:
 	DATA_WIDTH=$(DATA_WIDTH) NO_ASSUME=1 $(QVERIFY) -c -od $(FORMAL_OUT) -do formal/run_formal.tcl
 	$(PYTHON) scripts/check_formal_report.py $(FORMAL_REPORT)_noassume.txt
 
-.PHONY: check lint lint-verilator lint-slang smoke selfcheck-test \
-        lib simple-build simple uvm-home-check uvm-build uvm uvm-sweep \
-        formal-build formal formal-sweep formal-build-cov formal-coverage \
-        formal-verify formal-verify-all formal-verify-noassume clean
+# ============================================================================
+# Mutation testing: every patch in mutations/ in a throwaway copy under
+# build/mutation/, scored by black-box UVM and by Questa Formal.
+# ============================================================================
+MUT_SEEDS ?= 5
+
+mutate:
+	$(PYTHON) scripts/run_mutations.py --seeds $(MUT_SEEDS) $(if $(ONLY),--only $(ONLY))
+
+.PHONY: check lint lint-verilator lint-slang smoke selfcheck-test mutations-test \
+        lib simple-build simple uvm-home-check uvm-build uvm uvm-run uvm-sweep \
+        formal-build formal formal-signature formal-sweep formal-build-cov formal-coverage \
+        formal-verify formal-verify-all formal-verify-noassume mutate clean
 
 # Every output is under build/. The .gitignore fallback entries cover a tool
 # started by hand from the repo root.

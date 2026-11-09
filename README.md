@@ -47,6 +47,7 @@ axi4lite_uvm_questa/
 │   ├── axi4lite_fifo_model.sv      -- in-order request queue shared by the blackbox checkers (with overflow assert)
 │   ├── axi4lite_covers.sv          -- `cover property`: handshake/response/strobe, multi-transaction and mid-transaction-reset reachability
 │   ├── axi4lite_formal_driver.sv   -- legal-master constrained-random driver for simulation-based checking
+│   ├── axi4lite_signature.sv       -- hash of what the DUT shows at its ports, for mutation testing
 │   └── formal_tb.sv                -- top-level formal environment, wires the above + the DUT together
 ├── docs/
 │   ├── axi4lite_slave_spec.md      -- this DUT's concrete behavior, traced back to ARM IHI 0022E rules
@@ -57,9 +58,13 @@ axi4lite_uvm_questa/
 │       └── uvm/
 │           ├── uvm_env_structure.svg    -- test / env / agent hierarchy and its connections to the DUT
 │           └── scoreboard_data_flow.svg -- data flow of the scoreboard's shadow-register check
+├── mutations/                      -- one patch per injected bug, with the result expected before the run
 ├── scripts/
 │   ├── check_formal_report.py      -- formal self-check: fails unless a qverify report matches expected_counts.txt
-│   └── test_check_formal_report.py -- its tests: reference reports must pass, damaged copies must fail (run by make check)
+│   ├── questa_log.py               -- what counts as a passing UVM run
+│   ├── run_mutations.py            -- mutation testing: each bug in a throwaway copy, scored by UVM and by formal
+│   ├── test_check_formal_report.py -- self-check tests: clean reports pass, real failing and damaged ones fail (make check)
+│   └── test_mutations.py           -- every patch applies and compiles, baselines match the plan (make check)
 ├── sim/
 │   ├── wave.do                     -- interactive-only GUI script: curated waves for tb_simple, then run
 │   └── wave_uvm.do                 -- interactive-only GUI script: curated waves for the UVM env (tb_top / intf / dut), then run
@@ -119,7 +124,7 @@ in as `+define+AXI4LITE_DATA_WIDTH`, and `tb/axi4lite_pkg.sv`,
 switching width never means editing a source file.
 
 ```bash
-make check                                     # local, no Questa: lint (verilator -Wall + slang), Verilator smoke at 32/64-bit, self-check tests
+make check                                     # local, no Questa: lint (verilator -Wall + slang), Verilator smoke at 32/64-bit, self-check and mutation tests
 make lint                                      # just the lint part
 make smoke DATA_WIDTH=64                       # just the smoke test, one width
 
@@ -139,6 +144,9 @@ make formal-verify                             # real Questa Formal proof (flow 
 make formal-verify DATA_WIDTH=64               # same, 64-bit configuration
 make formal-verify-all                         # both widths back to back
 make formal-verify-noassume                    # proof without assumptions: shows which proofs depend on them
+
+make mutate                                    # every bug in mutations/, scored by UVM and by formal: build/mutation/summary.md
+make mutate ONLY=M02,M18 MUT_SEEDS=2           # a few mutants, fewer seeds
 
 make clean                                     # removes build/
 ```
@@ -294,8 +302,8 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
   whitebox `a_read_data_matches_regfile` fire.
 - **Whitebox checks** against `dut.regfile`: WSTRB byte lanes, read data,
   and a frame condition (a register changes only on an in-range write to it).
-- **Mutation**: aliasing out-of-range writes onto `regfile[word_idx[3:0]]`
-  (still answering SLVERR) fires both `a_e2e_read_data` and the frame condition.
+- **Mutation**: every non-equivalent mutant in `mutations/` fires at least one
+  assert (see "Mutation testing" below).
 - **Known, benign: 33 covers are "Covered with Warning".** At the first
   tick `$rose`/`$stable` have no previous sample; qverify models it as a
   free control point and flags witnesses that assign it (confirmed in the
@@ -305,6 +313,37 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
   flagged covers use neither function (e.g. `cp_e2e_partial_strobe_merge`,
   `cp_write_arrives_while_b_pending`); their control points are still to
   be checked in the GUI.
+
+## Mutation testing
+
+`make mutate` injects 21 bugs (`mutations/`), one at a time, each in a throwaway copy
+of the design, and scores each with black-box UVM and with Questa Formal. Every
+patch states its expected result before the run. Full table, with what fired:
+[`docs/mutation_baseline.md`](docs/mutation_baseline.md). First run, Questa 2024.3,
+2026-11-09: **22 runs (M18 at both widths), 0 different from the expected result,
+0 errors.**
+
+| | Count | Mutants |
+|---|---|---|
+| Caught by UVM and formal | 15 | M01–M08, M10–M13, M16, M17, M18 (64-bit) |
+| Caught by formal only | 5 | M09a, M09b, M14, M15, M19 |
+| Equivalent (no observable difference) | 2 | M18 (32-bit: `ADDR_LSB` is 2 anyway), M20 |
+
+The five UVM survivors were expected, and each points to a gap in the stimulus or
+the monitor, not to a checker that is wrong:
+
+- **M09a** (regfile not reset): the monitor stores `rdata` in a 2-state field, so
+  an X from an unreset register reads as 0. The planned monitor X check closes it.
+- **M09b** (regfile cleared at the first reset only): no UVM test resets mid-run
+  yet.
+- **M14, M15** (a second write while B is pending, a second read while R is
+  pending): the driver keeps one request in flight per channel.
+- **M19** (a read bypasses a write on the same edge): no UVM test overlaps a read
+  and a write.
+
+Formal catches all of them. One finding came out of building the flow: Questa
+counts a vacuous assert under `Proven`, so the formal self-check rejects any
+summary row it hasn't seen in a clean report (`docs/plan.md` §2.8).
 
 ## Next steps / extension points
 

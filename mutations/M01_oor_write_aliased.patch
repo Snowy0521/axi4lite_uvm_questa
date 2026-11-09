@@ -1,0 +1,15 @@
+# M01: Out-of-range write aliased onto regfile[idx[3:0]], still SLVERR
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -116,6 +116,10 @@
+           end
+           bresp <= AXI_RESP_OKAY; 
+         end else begin
++          for (int b = 0; b < DATA_WIDTH/8; b++) begin
++            if (wstrb_latched[b])
++              regfile[word_idx[3:0]][b*8 +: 8] <= wdata_latched[b*8 +: 8];
++          end
+           bresp <= AXI_RESP_SLVERR; 
+         end
+         bvalid     <= 1'b1;

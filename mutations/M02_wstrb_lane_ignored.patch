@@ -1,0 +1,13 @@
+# M02: WSTRB lane 0 ignored: that byte is always written
+# baseline 32: K K
+--- a/rtl/axi4lite_slave.sv
++++ b/rtl/axi4lite_slave.sv
+@@ -111,7 +111,7 @@
+         automatic int unsigned word_idx = 32'(awaddr_latched[ADDR_WIDTH-1:ADDR_LSB]);
+         if (word_idx < NUM_REGS) begin
+           for (int b = 0; b < DATA_WIDTH/8; b++) begin
+-            if (wstrb_latched[b])
++            if (wstrb_latched[b] || b == 0)
+               regfile[word_idx][b*8 +: 8] <= wdata_latched[b*8 +: 8];
+           end
+           bresp <= AXI_RESP_OKAY; 
