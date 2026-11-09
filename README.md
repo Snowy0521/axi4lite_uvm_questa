@@ -302,8 +302,8 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
   whitebox `a_read_data_matches_regfile` fire.
 - **Whitebox checks** against `dut.regfile`: WSTRB byte lanes, read data,
   and a frame condition (a register changes only on an in-range write to it).
-- **Mutation**: aliasing out-of-range writes onto `regfile[word_idx[3:0]]`
-  (still answering SLVERR) fires both `a_e2e_read_data` and the frame condition.
+- **Mutation**: every non-equivalent mutant in `mutations/` fires at least one
+  assert (see "Mutation testing" below).
 - **Known, benign: 33 covers are "Covered with Warning".** At the first
   tick `$rose`/`$stable` have no previous sample; qverify models it as a
   free control point and flags witnesses that assign it (confirmed in the
@@ -313,6 +313,37 @@ Questa Formal 2024.3, `make formal-verify-all` -- full proofs (not bounded), non
   flagged covers use neither function (e.g. `cp_e2e_partial_strobe_merge`,
   `cp_write_arrives_while_b_pending`); their control points are still to
   be checked in the GUI.
+
+## Mutation testing
+
+`make mutate` injects 21 bugs (`mutations/`), one at a time, each in a throwaway copy
+of the design, and scores each with black-box UVM and with Questa Formal. Every
+patch states its expected result before the run. Full table, with what fired:
+[`docs/mutation_baseline.md`](docs/mutation_baseline.md). First run, Questa 2024.3,
+2026-11-09: **22 runs (M18 at both widths), 0 different from the expected result,
+0 errors.**
+
+| | Count | Mutants |
+|---|---|---|
+| Caught by UVM and formal | 15 | M01–M08, M10–M13, M16, M17, M18 (64-bit) |
+| Caught by formal only | 5 | M09a, M09b, M14, M15, M19 |
+| Equivalent (no observable difference) | 2 | M18 (32-bit: `ADDR_LSB` is 2 anyway), M20 |
+
+The five UVM survivors were expected, and each points to a gap in the stimulus or
+the monitor, not to a checker that is wrong:
+
+- **M09a** (regfile not reset): the monitor stores `rdata` in a 2-state field, so
+  an X from an unreset register reads as 0. The planned monitor X check closes it.
+- **M09b** (regfile cleared at the first reset only): no UVM test resets mid-run
+  yet.
+- **M14, M15** (a second write while B is pending, a second read while R is
+  pending): the driver keeps one request in flight per channel.
+- **M19** (a read bypasses a write on the same edge): no UVM test overlaps a read
+  and a write.
+
+Formal catches all of them. One finding came out of building the flow: Questa
+counts a vacuous assert under `Proven`, so the formal self-check rejects any
+summary row it hasn't seen in a clean report (`docs/plan.md` §2.8).
 
 ## Next steps / extension points
 
