@@ -44,6 +44,8 @@ class axi4lite_monitor extends uvm_monitor;
     // Waiting for reset and one extra clocking-event pushes the first 
     // sample to the next edge, by which point the driver's first 
     // transaction's driven values.
+    // Released, not merely high: rst_n starts at 1 (see the driver).
+    wait (vif.rst_n === 1'b0);
     wait (vif.rst_n === 1'b1);
     @(vif.mon_cb);
     fork

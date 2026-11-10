@@ -10,6 +10,10 @@ first failing run and its first problem; formal gives the number of fired target
 
 **22 runs: 0 differ from the expected baseline, 0 errors.**
 
+**Re-run after step 5a (2026-11-10, `step5a-regress`):** 22 runs, 0 differ, 0 errors. The only change is M09a,
+now K / K: `axi4lite_random_test seed 1: [MON_X] X/Z on DUT output(s): rdata` (its patch baseline was moved to
+K K in the same step). Every other row is as below.
+
 | ID | Width | Mutation | Behaviour | Simulation | Formal | Sim / formal | Result |
 |---|---|---|---|---|---|---|---|
 | M01 | 32 | Out-of-range write aliased onto regfile[idx[3:0]], still SLVERR | changed | random seed 1: `[SB]` | 17 fired: `a_e2e_read_data`, `a_regfile_changes_only_on_own_write` ×16 | K / K | as expected |
@@ -39,7 +43,7 @@ first failing run and its first problem; formal gives the number of fired target
 
 | ID | Why the UVM bench misses it | Closed by (plan §6) |
 |---|---|---|
-| M09a | Without the reset the regfile starts as X, but the monitor copies `rdata` into a 2-state `bit`, so an unwritten register reads back as 0, which is what the scoreboard expects (plan §4, note on M09) | 5a: monitor X check (`MON_X`) |
+| M09a (closed in 5a) | Without the reset the regfile starts as X, but the monitor copies `rdata` into a 2-state `bit`, so an unwritten register reads back as 0, which is what the scoreboard expects (plan §4, note on M09) | 5a: monitor X check (`MON_X`) |
 | M09b | The regfile is cleared at power-on; no test resets mid-run, so the skipped later clears are never seen | 5b: `axi4lite_reset_test` |
 | M14, M15 | Needs a second write while B is pending / a second AR while R is pending; the driver keeps one request in flight per channel | Stretch goal: pipelined driver |
 | M19 | Needs a read and a write to the same register firing on the same edge | 5c: `axi4lite_rw_concurrency_test` |

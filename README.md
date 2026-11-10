@@ -326,19 +326,21 @@ of the design, and scores each with black-box UVM and with Questa Formal. Every
 patch states its expected result before the run. Full table, with what fired:
 [`docs/mutation_baseline.md`](docs/mutation_baseline.md). First run, Questa 2024.3,
 2026-11-09: **22 runs (M18 at both widths), 0 different from the expected result,
-0 errors.**
+0 errors.** Re-run after step 5a (monitor X check, checkers bound into the UVM DUT),
+2026-11-10: again 0 different, 0 errors, with M09a moved to caught by both.
 
 | | Count | Mutants |
 |---|---|---|
-| Caught by UVM and formal | 15 | M01–M08, M10–M13, M16, M17, M18 (64-bit) |
-| Caught by formal only | 5 | M09a, M09b, M14, M15, M19 |
+| Caught by UVM and formal | 16 | M01–M08, M09a (since 5a), M10–M13, M16, M17, M18 (64-bit) |
+| Caught by formal only | 4 | M09b, M14, M15, M19 |
 | Equivalent (no observable difference) | 2 | M18 (32-bit: `ADDR_LSB` is 2 anyway), M20 |
 
-The five UVM survivors were expected, and each points to a gap in the stimulus or
+The UVM survivors were expected, and each points to a gap in the stimulus or
 the monitor, not to a checker that is wrong:
 
-- **M09a** (regfile not reset): the monitor stores `rdata` in a 2-state field, so
-  an X from an unreset register reads as 0. The planned monitor X check closes it.
+- **M09a** (regfile not reset), closed in step 5a: the monitor stores `rdata` in a
+  2-state field, so an X from an unreset register read as 0. The monitor X check
+  (`MON_X`) now flags it.
 - **M09b** (regfile cleared at the first reset only): no UVM test resets mid-run
   yet.
 - **M14, M15** (a second write while B is pending, a second read while R is
