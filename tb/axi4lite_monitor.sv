@@ -17,7 +17,17 @@ class axi4lite_monitor extends uvm_monitor;
     .DATA_WIDTH(DATA_WIDTH)
   ).monitor vif;
 
-  uvm_analysis_port #(axi4lite_txn) ap;
+  uvm_analysis_port #(axi4lite_txn) ap;            // completed transactions only
+  uvm_analysis_port #(axi4lite_reset_evt) reset_ap; // one event per reset, with what it cut off
+
+  // The transaction being rebuilt on each side, and how far it got: what a
+  // reset reports as aborted. Kept here because a reset kills the threads
+  // that hold them.
+  typedef enum { WR_IDLE, WR_AW_W, WR_B_WAIT } wr_stage_e;
+  typedef enum { RD_IDLE, RD_R_WAIT } rd_stage_e;
+  protected wr_stage_e wr_stage;
+  protected rd_stage_e rd_stage;
+  int unsigned n_resets;
 
   // Raw handshake counts per channel, kept apart from transaction
   // reconstruction: a B or R the DUT sends unasked never gets paired by
@@ -28,7 +38,8 @@ class axi4lite_monitor extends uvm_monitor;
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
-    ap = new("ap", this); // TLM port, can not be registered in config_db, just new it
+    ap       = new("ap", this); // TLM port, can not be registered in config_db, just new it
+    reset_ap = new("reset_ap", this);
   endfunction
 
   function void build_phase(uvm_phase phase);
@@ -49,12 +60,56 @@ class axi4lite_monitor extends uvm_monitor;
     wait (vif.rst_n === 1'b1);
     @(vif.mon_cb);
     fork
-      monitor_write();
-      monitor_read();
-      count_handshakes();
-      check_x();
+      check_x();        // gates on rst_n itself, so it runs through resets
+      watch_resets();
     join
   endtask
+
+  // The transaction threads run until rst_n falls; then they are killed, the
+  // reset is published with whatever was in flight, the counts restart (the DUT
+  // has dropped every request), and the threads start again after the release.
+  // disable fork kills only this task's children, not check_x.
+  task watch_resets();
+    forever begin
+      wr_stage = WR_IDLE;
+      rd_stage = RD_IDLE;
+      fork
+        monitor_write();
+        monitor_read();
+        count_handshakes();
+        // An edge, unlike the driver: this fork starts only after @(mon_cb), a
+        // posedge, and rst_n falls only at a negedge (or at 1 ns, before the
+        // monitor starts), so the fall is never in the time step the wait
+        // starts in. rst_cb then holds the VALIDs from just before the fall.
+        @(vif.rst_cb);
+      join_any
+      disable fork;
+      publish_reset();
+      wait (vif.rst_n === 1'b1);
+      @(vif.mon_cb);
+    end
+  endtask
+
+  // What the reset cut off, from the rebuild state and the VALIDs just before
+  // the fall (rst_cb): a write waiting for B, or with one half accepted or a
+  // VALID up; a read waiting for R, or with ARVALID up. A VALID raised in the
+  // reset's own cycle counts: that is the request the reset cut off.
+  protected function void publish_reset();
+    axi4lite_reset_evt evt = axi4lite_reset_evt::type_id::create("evt");
+    if (wr_stage == WR_B_WAIT)
+      evt.aborted.push_back(ABORT_B_WAIT);
+    else if (wr_stage == WR_AW_W || vif.rst_cb.awvalid === 1'b1 || vif.rst_cb.wvalid === 1'b1)
+      evt.aborted.push_back(ABORT_AW_W);
+    if (rd_stage == RD_R_WAIT)
+      evt.aborted.push_back(ABORT_R_WAIT);
+    else if (vif.rst_cb.arvalid === 1'b1)
+      evt.aborted.push_back(ABORT_AR);
+    n_aw = 0; n_w = 0; n_b = 0; n_ar = 0; n_r = 0;
+    n_wr_pub = 0; n_rd_pub = 0;
+    n_resets++;
+    `uvm_info("MON", evt.convert2string(), UVM_MEDIUM)
+    reset_ap.write(evt);
+  endfunction
 
   // No X on a DUT output a master can see. The transaction fields are 2-state
   // (bit), so an X copied into one silently becomes 0 and could match what the
@@ -88,12 +143,14 @@ class axi4lite_monitor extends uvm_monitor;
   // a random test to give different fingerprints (a seed that is not applied
   // makes every run identical).
   local bit [31:0] fp = 32'h811c_9dc5;
+  local int unsigned fp_count;   // transactions in the hash; unlike n_*_pub, not reset by a reset
 
   local function void fp_word(bit [31:0] w);
     for (int i = 0; i < 4; i++) fp = (fp ^ 32'(w[i*8 +: 8])) * 32'h0100_0193;
   endfunction
 
   local function void fingerprint(axi4lite_txn tr);
+    fp_count++;
     fp_word(32'(tr.op));
     fp_word(32'(tr.addr));
     for (int i = 0; i < DATA_WIDTH; i += 32) begin
@@ -108,7 +165,7 @@ class axi4lite_monitor extends uvm_monitor;
 
   function void report_phase(uvm_phase phase);
     super.report_phase(phase);
-    `uvm_info("FINGERPRINT", $sformatf("FINGERPRINT %08h (%0d transactions)", fp, n_wr_pub + n_rd_pub), UVM_NONE)
+    `uvm_info("FINGERPRINT", $sformatf("FINGERPRINT %08h (%0d transactions)", fp, fp_count), UVM_NONE)
   endfunction
 
   // Samples the same edges as monitor_write/monitor_read.
@@ -181,6 +238,7 @@ class axi4lite_monitor extends uvm_monitor;
           disable fork;
           tr.addr = vif.mon_cb.awaddr;
           aw_t    = $time;
+          wr_stage = WR_AW_W;
         end
         begin : do_w
           fork
@@ -198,10 +256,12 @@ class axi4lite_monitor extends uvm_monitor;
           tr.wdata = vif.mon_cb.wdata;
           tr.wstrb = vif.mon_cb.wstrb;
           w_t      = $time;
+          wr_stage = WR_AW_W;
         end
       join
       tr.aw_w_order = (aw_t < w_t) ? AW_FIRST :
                       (w_t < aw_t) ? W_FIRST  : AW_W_SAME_CYCLE;
+      wr_stage = WR_B_WAIT;
 
       fork
         begin : wait_b
@@ -221,6 +281,7 @@ class axi4lite_monitor extends uvm_monitor;
       tr.resp = vif.mon_cb.bresp;
 
       `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_HIGH)
+      wr_stage = WR_IDLE;
       n_wr_pub++;
       fingerprint(tr);
       ap.write(tr);
@@ -249,6 +310,7 @@ class axi4lite_monitor extends uvm_monitor;
       join_any
       disable fork;
       tr.addr = vif.mon_cb.araddr;
+      rd_stage = RD_R_WAIT;
 
       fork
         begin : wait_r
@@ -269,6 +331,7 @@ class axi4lite_monitor extends uvm_monitor;
       tr.resp  = vif.mon_cb.rresp;
 
       `uvm_info("MON", $sformatf("observed %s", tr.convert2string()), UVM_HIGH)
+      rd_stage = RD_IDLE;
       n_rd_pub++;
       fingerprint(tr);
       ap.write(tr);

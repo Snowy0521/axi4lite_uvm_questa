@@ -20,8 +20,8 @@ axi4lite_uvm_questa/
 │   └── axi4lite_slave.sv           -- DUT: simple AXI4-Lite slave, NUM_REGS x 32/64-bit reg file
 ├── tb/
 │   ├── tb.f                        -- UVM testbench file list (the UVM library is compiled separately)
-│   ├── axi4lite_if.sv              -- interface with driver/monitor clocking blocks + modports
-│   ├── axi4lite_txn.sv             -- transaction (uvm_sequence_item)
+│   ├── axi4lite_if.sv              -- interface: clocking blocks, modports, and rst_n with the power-on and mid-run reset tasks
+│   ├── axi4lite_txn.sv             -- transaction (uvm_sequence_item), and the monitor's reset event
 │   ├── axi4lite_sequencer.sv       -- uvm_sequencer typedef
 │   ├── axi4lite_sequences.sv       -- directed write/read seqs + randomized traffic seq
 │   ├── axi4lite_driver.sv          -- drives transactions onto the bus (AW/W concurrent with random skew in either order, timeout-protected, virtual per-channel hooks)
@@ -30,8 +30,9 @@ axi4lite_uvm_questa/
 │   ├── axi4lite_agent.sv           -- driver + sequencer + monitor container (active/passive capable)
 │   ├── axi4lite_scoreboard.sv      -- shadow-register-model checker
 │   ├── axi4lite_coverage_collector.sv -- functional coverage (per register x op, range edge, data/strobe patterns, resp)
+│   ├── axi4lite_reset_coverage.sv  -- which phase of a transaction a mid-run reset hit (reset test only)
 │   ├── axi4lite_env.sv             -- top-level environment (agent + scoreboard + coverage)
-│   ├── axi4lite_tests.sv           -- base_test, smoke_test, random_test, unaligned_test
+│   ├── axi4lite_tests.sv           -- base_test, smoke_test, random_test, unaligned_test, reset_test
 │   ├── axi4lite_pkg.sv             -- package bundling all `include`d class files
 │   ├── tb_top.sv                   -- clock/reset gen, DUT+interface instantiation, run_test()
 │   └── tb_simple.sv                -- plain (non-UVM) direct-drive sanity check
@@ -341,8 +342,8 @@ the monitor, not to a checker that is wrong:
 - **M09a** (regfile not reset), closed in step 5a: the monitor stores `rdata` in a
   2-state field, so an X from an unreset register read as 0. The monitor X check
   (`MON_X`) now flags it.
-- **M09b** (regfile cleared at the first reset only): no UVM test resets mid-run
-  yet.
+- **M09b** (regfile cleared at the first reset only): no UVM test reset mid-run
+  before step 5b; `axi4lite_reset_test` is expected to close it.
 - **M14, M15** (a second write while B is pending, a second read while R is
   pending): the driver keeps one request in flight per channel.
 - **M19** (a read bypasses a write on the same edge): no UVM test overlaps a read

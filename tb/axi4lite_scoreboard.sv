@@ -7,19 +7,25 @@
 // every observed write, and checks every observed read against it.
 // ============================================================================
 
+// A second analysis input: the monitor's reset events, delivered to write_reset()
+`uvm_analysis_imp_decl(_reset)
+
 class axi4lite_scoreboard extends uvm_component;
   `uvm_component_utils(axi4lite_scoreboard)
 
   uvm_analysis_imp #(axi4lite_txn, axi4lite_scoreboard) imp; // terminator, write in scoreboard.write()
+  uvm_analysis_imp_reset #(axi4lite_reset_evt, axi4lite_scoreboard) reset_imp;
 
   // shadow model of the DUT's register file -- word-addressed
   // chose associative array for large address spaces if NUM_REGS gets big
   protected bit [DATA_WIDTH-1:0] shadow_regs [int unsigned]; // associative array indexed by word address
   protected int unsigned num_regs, num_writes, num_reads, num_errors;
+  protected int unsigned num_resets, num_aborted;
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
-    imp = new("imp", this);
+    imp       = new("imp", this);
+    reset_imp = new("reset_imp", this);
   endfunction 
 
   function void build_phase(uvm_phase phase);
@@ -115,11 +121,26 @@ class axi4lite_scoreboard extends uvm_component;
   endfunction
 
 
+  // A reset clears the regfile (asynchronously, spec 5.3), so a write in
+  // flight is lost whether or not the DUT had latched it. The transactions it
+  // cut off never reach write(): the monitor only publishes completed ones.
+  function void write_reset(axi4lite_reset_evt evt);
+    num_resets++;
+    num_aborted += evt.aborted.size();
+    clear_on_reset();
+  endfunction
+
+  // Every piece of model state, cleared together: nothing from before a
+  // reset may be visible to a read after it. (5c adds the write history here.)
+  protected function void clear_on_reset();
+    shadow_regs.delete();
+  endfunction
+
   // report_phase: print a summary of the scoreboard's activity and any errors
   function void report_phase(uvm_phase phase);
     `uvm_info("SB", $sformatf(
-      "SCOREBOARD SUMMARY: writes=%0d reads=%0d errors=%0d",
-      num_writes, num_reads, num_errors), UVM_LOW)
+      "SCOREBOARD SUMMARY: writes=%0d reads=%0d errors=%0d resets=%0d aborted=%0d",
+      num_writes, num_reads, num_errors, num_resets, num_aborted), UVM_LOW)
     if ((num_errors == 0) && (num_writes + num_reads != 0))
       `uvm_info("SB", "*** SCOREBOARD: ALL CHECKS PASSED ***", UVM_LOW)
     else

@@ -14,7 +14,6 @@ import axi4lite_pkg::*;
 module tb_top;
 
   logic clk;
-  logic rst_n = 1'b1;   // see the reset block below
 
   // ------------------------------------------------------------------
   // Clock generation: 100 MHz (10ns period)
@@ -23,27 +22,14 @@ module tb_top;
   always #5 clk = ~clk;
 
   // ------------------------------------------------------------------
-  // Reset generation: held low for 3 posedges at the start.
-  // rst_n is 1 at time 0 and drops at 1 ns: a real 1 -> 0 edge after every
-  // process has started and before the first posedge (5 ns). `rst_n = 0` in
-  // an initial at time 0 is a race with the DUT's `negedge rst_n` event
-  // control, and a declaration initialiser of 0 gives no edge at all, so the
-  // DUT's flops could still be X at the first posedge. Released at a negedge,
-  // so no clock edge sees rst_n change.
-  // ------------------------------------------------------------------
-  initial begin
-    #1 rst_n = 1'b0;
-    repeat (3) @(posedge clk);
-    @(negedge clk) rst_n = 1'b1;
-  end
-
-  // ------------------------------------------------------------------
-  // Interface + DUT
+  // Interface + DUT. The interface owns rst_n (see axi4lite_if.sv).
   // ------------------------------------------------------------------
   axi4lite_if #(.ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH), .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)) intf (
-    .clk    (clk),
-    .rst_n (rst_n)
+    .clk    (clk)
   );
+
+  // Power-on reset: low from 1 ns for 3 posedges, released at a negedge
+  initial intf.power_on_reset(3);
 
   axi4lite_slave #(
     .ADDR_WIDTH (axi4lite_pkg::ADDR_WIDTH),
@@ -51,7 +37,7 @@ module tb_top;
     .NUM_REGS   (axi4lite_pkg::NUM_REGS)
   ) dut (
     .clk    (clk),
-    .rst_n (rst_n),
+    .rst_n   (intf.rst_n),
     .awaddr  (intf.awaddr),
     .awvalid (intf.awvalid),
     .awready (intf.awready),
@@ -116,6 +102,14 @@ module tb_top;
         .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
       ).monitor
     )::set(null, "uvm_test_top.env.agent.*", "vif", intf);
+
+    // For a test that resets the DUT mid-run; the base test reads it
+    uvm_config_db#(
+      virtual axi4lite_if #(
+        .ADDR_WIDTH(axi4lite_pkg::ADDR_WIDTH),
+        .DATA_WIDTH(axi4lite_pkg::DATA_WIDTH)
+      ).reset_ctrl
+    )::set(null, "uvm_test_top", "reset_vif", intf);
     // +UVM_TESTNAME on the vsim command line overrides this default test name
     run_test("axi4lite_smoke_test");
   end

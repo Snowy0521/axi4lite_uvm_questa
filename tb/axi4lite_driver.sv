@@ -34,23 +34,60 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   task run_phase(uvm_phase phase);
 
     // super.run_phase(phase); --- IGNORE --- // its a virtual task, so it does nothing anyway
-    // Wait for the reset to be released, not just for rst_n to be 1: tb_top
-    // starts rst_n at 1 and drops it at 1 ns, so a bare `wait (rst_n === 1)`
-    // passes at time 0 and the first write is driven while the DUT is still
-    // in reset (m_*valid_low_in_reset fire, the write is lost, DRV_TIMEOUT).
-    // Level waits, so it works whether run_phase starts before or after the drop.
-    wait (vif.rst_n === 1'b0);
-    wait (vif.rst_n === 1'b1);
-    reset_signals();
+    wait_reset_release(1);   // power-on: rst_n starts at 1, so wait for the fall too
 
     forever begin
       axi4lite_txn tr;
+      bit          aborted;
       seq_item_port.get_next_item(tr);
       `uvm_info("DRV", $sformatf("Got transaction: op=%0d addr=0x%0h data=0x%0h", tr.op, tr.addr, tr.wdata), UVM_HIGH)
-      if (tr.op == AXI_WRITE) drive_write(tr);
-      else                    drive_read(tr);
-      seq_item_port.item_done();
+      // A reset that fell while this driver was idle in get_next_item: don't
+      // drive the item into it (the DUT would drop it, the bound
+      // m_*valid_low_in_reset would fire). The fall has already happened.
+      if (vif.rst_n !== 1'b1) begin
+        `uvm_info("DRV", {"item held until reset release: ", tr.convert2string()}, UVM_MEDIUM)
+        wait_reset_release(0);
+      end
+      // The item runs against the next fall of rst_n. disable fork also kills
+      // the per-channel timeout watchdogs inside drive_write / drive_read: a
+      // surviving one would fire DRV_TIMEOUT later, in a test that passed.
+      aborted = 0;
+      fork
+        if (tr.op == AXI_WRITE) drive_write(tr);
+        else                    drive_read(tr);
+        begin
+          // A level wait, not @(negedge): a reset that falls in this time step,
+          // after the check above but before this branch starts, would be an
+          // edge already gone, and the item would be driven into the reset.
+          wait (vif.rst_n !== 1'b1);
+          aborted = 1;
+        end
+      join_any
+      disable fork;
+      // From the fall to the wait below in zero simulated time: a reset may
+      // be one clock long, and the wait must not miss its release.
+      if (aborted) begin
+        vif.clear_master_valids();   // now, as a master's async-reset flops would
+        vif.drv_cb.awvalid <= 1'b0;  // and the clockvars agree at the next edge
+        vif.drv_cb.wvalid  <= 1'b0;
+        vif.drv_cb.arvalid <= 1'b0;
+        `uvm_info("DRV", {"aborted by reset: ", tr.convert2string()}, UVM_MEDIUM)
+      end
+      seq_item_port.item_done();     // also for an aborted item, or its sequence hangs in finish_item
+      if (aborted) wait_reset_release(0);
     end
+  endtask
+
+  // Wait for a reset to be released, then idle the bus. Waits for rst_n to
+  // fall first only when the caller has not seen the fall yet (power-on:
+  // rst_n starts at 1, and a bare wait for 1 would pass at time 0 and drive
+  // the first item into the reset). A caller that has seen the fall must not
+  // wait for it again: after a one-clock reset rst_n may be 1 already, and a
+  // wait for 0 would then block until the next reset.
+  task wait_reset_release(bit wait_for_fall);
+    if (wait_for_fall) wait (vif.rst_n === 1'b0);
+    wait (vif.rst_n === 1'b1);
+    reset_signals();
   endtask
 
   task reset_signals();

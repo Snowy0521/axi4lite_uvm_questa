@@ -14,10 +14,12 @@ class axi4lite_agent extends uvm_agent;
   axi4lite_monitor   mon;
 
   uvm_analysis_port #(axi4lite_txn) ap;   // pass-through of the monitor's ap for env-level connect
+  uvm_analysis_port #(axi4lite_reset_evt) reset_ap;   // and of its reset_ap
 
   function new(string name, uvm_component parent);
     super.new(name, parent);
-    ap = new("ap", this); 
+    ap       = new("ap", this);
+    reset_ap = new("reset_ap", this);
   endfunction
 
   function void build_phase(uvm_phase phase);
@@ -35,6 +37,7 @@ class axi4lite_agent extends uvm_agent;
     if (get_is_active() == UVM_ACTIVE)
       drv.seq_item_port.connect(sqr.seq_item_export);
     mon.ap.connect(ap);
+    mon.reset_ap.connect(reset_ap);
     `uvm_info("AGT", "connect_phase done", UVM_LOW)
   endfunction
 

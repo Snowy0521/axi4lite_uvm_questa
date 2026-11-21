@@ -282,7 +282,7 @@ Planned field (step 5c): `stamp`, the sample index of the event that orders the 
   alone (§4).
 - **VCD dump (done):** only with `+vcd` (`make uvm PLUSARGS=+vcd`), into `build/sim/tb_top.vcd`.
 
-### 3.3 Reset in the middle of a test (planned, step 5b)
+### 3.3 Reset in the middle of a test (implemented, step 5b; Questa run pending)
 
 **Who drives `rst_n`.** The interface owns `rst_n`. It stops being an `axi4lite_if` port and becomes an interface
 variable; `tb_top` connects `dut.rst_n` to `intf.rst_n`. It is declared **`logic rst_n = 1'b1;`**, and the power-on
@@ -347,23 +347,40 @@ simulation: a reset task that is later randomized freely makes the assume fire. 
   every `get_next_item`, before driving: `if (vif.rst_n !== 1'b1) wait_reset_release();`. In SPLIT mode (§3.4),
   both threads do this.
 
+**The driver waits on the level of `rst_n`, not its edge:** the item runs against `wait (vif.rst_n !== 1'b1)`, not
+`@(negedge vif.rst_n)`. A reset can fall in the same time step a new item arrives (right after an abort's
+`item_done()`, at a negedge), after the driver's "reset while idle" check but before the watcher starts; an edge
+wait would miss it and drive the item into the reset. The monitor can use the edge: its threads start only after
+`@(mon_cb)`, a posedge, and resets fall only at negedges.
+
 **Monitor:**
-- On `negedge rst_n` it kills its reconstruction threads, publishes each in-flight transaction with `aborted = 1`
-  and `abort_phase` ∈ {AW_W, B_WAIT, AR, R_WAIT}, and resets its raw handshake counters to 0. The DUT has dropped
-  all of them, so the end-of-test outstanding check starts over.
-- It publishes a reset event (cycle stamp) on a second analysis port `reset_ap`, even when nothing is in flight.
+- When `rst_n` falls it kills its reconstruction threads (`check_x` runs outside them, gated on `rst_n` itself),
+  resets its raw handshake counters to 0 (the DUT has dropped every request, so the end-of-test outstanding check
+  starts over), and restarts the threads after the release.
+- What was in flight comes from its rebuild state plus the master VALIDs **just before the fall**, from a clocking block
+  on the fall itself, `rst_cb @(negedge rst_n)` with `#1step` inputs. `mon_cb` can't tell: it holds the last posedge
+  sample, from before the driver raised a VALID (2 ns after a posedge; the fall comes at the next negedge). And the raw
+  pins race the driver's `clear_master_valids()` in the fall's time step. With `mon_cb`, a read cut off in the cycle
+  it starts would be counted as idle, and `cp_reset_phase.ar` could never be hit (ARREADY is high whenever the
+  driver raises ARVALID, so by the next posedge the read has been accepted).
+- It publishes **one reset event per reset** on a second analysis port `reset_ap`: an `axi4lite_reset_evt` whose
+  `aborted` list holds the phase (AW_W, B_WAIT, AR, R_WAIT) of every transaction the reset cut off, or is empty
+  when nothing was in flight. Aborted transactions are **not** published on `ap`, which keeps carrying completed
+  transactions only, so the scoreboard, the coverage collector and the fingerprint need no filter. (Changed from
+  the first version of this plan, which published aborted transactions on `ap` with an `aborted` flag.)
 
 **Scoreboard:**
 - On a reset event it calls one function, `clear_on_reset()`, which clears **all** model state together: the shadow
   model to 0 and, from step 5c, the per-register write history (§3.4). This is deterministic: the regfile has an
   asynchronous reset (spec §5.3), so a write in flight is lost whether or not it had been latched. A history entry
   from before the reset must never be visible to a read after it.
-- Aborted transactions are not checked; it only counts them.
+- Aborted transactions are not checked (they never reach it); it counts them from the reset events.
 
-**Coverage:** `cp_reset_phase` = {idle, AW_W, B_WAIT, AR, R_WAIT}, sampled once per aborted transaction, and as
-`idle` from `reset_ap` when nothing was in flight. In SPLIT mode (§3.4), one reset can abort a write and a read
-together. The monitor then publishes both aborted transactions and one reset event. `cp_reset_phase` is sampled
-once for each aborted transaction, so this case needs no extra bin.
+**Coverage:** `cp_reset_phase` = {idle, AW_W, B_WAIT, AR, R_WAIT}, in its own component
+(`tb/axi4lite_reset_coverage.sv`), sampled once per aborted transaction of a reset event, and as `idle` when its list
+is empty. One reset can abort a write and a read together (a write in B_WAIT with a read in AR, say, or both in SPLIT
+mode, §3.4); each is sampled, so this needs no extra bin. The env builds the component only when the test sets
+config `reset_cov` (`axi4lite_reset_test`), so the other tests' coverage models gain no bins they could never close.
 
 ### 3.4 Read/write concurrency (planned, step 5c)
 
@@ -454,7 +471,7 @@ that. They stay formal-only until a pipelined driver (§5).
 | `axi4lite_smoke_test` | done | `NUM_SMOKE_TXNS` = 4 full-strobe writes, then read-back. Directed; not held to a coverage goal |
 | `axi4lite_random_test` | done | `NUM_TXNS` = 100 random writes, each read back, plus a read of another register 30% of the time; data, strobe and address biased toward the coverage bins (incl. the last register and the first out-of-range word) |
 | `axi4lite_unaligned_test` | done | the random traffic with `axi4lite_unaligned_driver`: unaligned byte addresses, legal stimulus the sequences cannot produce |
-| `axi4lite_reset_test` | planned (5b) | random traffic with `apply_reset` at random negedges; every `cp_reset_phase` bin; the shadow cleared after each reset |
+| `axi4lite_reset_test` | implemented (5b) | random traffic with 6 resets at random points (the first one clock long, to exercise the abort path's zero-time requirement; the others 1–4), then one reset while the driver is idle in `get_next_item`, with the second run of the traffic started during it, so its first item arrives in the reset and must be held until the release; every `cp_reset_phase` bin over the seeds; the shadow cleared after each reset. In `regress.py` as a random test with a 100% goal, and in the mutation runs |
 | `axi4lite_oor_sweep_test` | planned (5c) | write every out-of-range word with a unique pattern, then read every register: the frame condition in simulation, and the minimal reproducer for M01 / M05 |
 | `axi4lite_rw_concurrency_test` | planned (5c) | SPLIT mode (`drv_mode` via config_db); overrides `run_phase` (no `sqr` in SPLIT mode) and runs a virtual sequence over `wr_sqr` / `rd_sqr`, same register, read `start_delay` 0..4, targeting the `m == k` / `m == k + 1` boundary |
 
@@ -570,7 +587,7 @@ surprise worth a look. K = killed, S = survives, E = equivalent (no observable d
 | M07 | RDATA changes while RVALID && !RREADY | `a_rvalid_stable`; scoreboard if the value at the handshake is wrong | K / K |
 | M08 | W before AW loses the data: the late AW clears the latched write data | e2e; `cp_aw_w_order` stimulus | K / K |
 | M09a | Reset branch does not clear the regfile at all | reset asserts, e2e; monitor X check (`MON_X`, since 5a) | K / K (simulation: S before 5a), see note |
-| M09b | Regfile cleared at the first reset only (a `reset_seen` flop in the mutant skips the clear afterwards) | e2e (qverify's free `rst_n` resets mid-run); `axi4lite_reset_test` | **S** / K, see note |
+| M09b | Regfile cleared at the first reset only (a `reset_seen` flop in the mutant skips the clear afterwards) | e2e (qverify's free `rst_n` resets mid-run); `axi4lite_reset_test` | K / K (simulation: S before 5b), see note |
 | M10 | Read decode rounds an unaligned address up to the next word: invisible to aligned traffic | e2e; only the unaligned test in simulation | K / K |
 | M11 | One data bit stuck at 0 in one register | e2e (symbolic `sym_idx`); `cp_wdata` patterns | K / K |
 | M12 | Out-of-range access answers DECERR instead of SLVERR | `a_bresp_legal_value` / `a_rresp_legal_value`; scoreboard, `cp_resp` illegal bins | K / K |
@@ -626,6 +643,6 @@ Questa can be traced to one change.
 | 3 | `make lint` (Verilator `-Wall` on the RTL with the two `WIDTHEXPAND` fixed and the two `UNUSEDSIGNAL` waived bit-precisely in `rtl/axi4lite_slave.vlt` (lint only); slang over RTL + `formal/`, both defines, both widths, `--timescale 1ns/1ps`), `make check` (lint + Verilator smoke on `*** TEST PASSED ***`, both widths), formal self-check (implemented; Questa checklist passed 2026-11-06: both throwaway mutation runs fail the self-check as intended (M04: 3 fired, 2 uncoverable; vacuous `a_bresp_legal_value`: `Vacuous (1)`), kept as `formal/reference/failing_*.txt`; all four clean proofs pass it) | `make check` passes locally; `formal-verify-all` and `formal-verify-noassume` at both widths still 57 / 65 proven, 43 covered after the RTL cast change; self-check passes on all four configurations |
 | 4 | `scripts/questa_log.py` (shared run classifier); `formal_tb`'s simulation reset in the `#1` drop / negedge release form, plus a rare mid-run reset; mutations M01–M20 (21 patches: M09a / M09b) on the current testbench (done: first `make mutate` 2026-11-09, 22 runs, 0 differ from the baseline, 0 errors; table in `docs/mutation_baseline.md`; `formal-sweep N=3` passes with the mid-run reset) | Baseline table: every mutant scored per flow and compared with the "expected at baseline" column (§4); clean design passes every flow first; `formal-sweep` still passes with the mid-run reset |
 | 5a | (done: Questa 2026-11-10. `make regress` 41 / 41 runs at 32 and 64 bits, checkers bound and silent, no `MON_X`, 20 distinct fingerprints per random test, coverage as before (100% per random test; code: branches 21/21, conditions 11/15, statements 35/35); `make mutate` 22 runs, 0 differ, M09a now K / K by `MON_X`. Fix found on the first run: driver and monitor now wait for `rst_n` to go 0 then 1, since it starts at 1) `scripts/regress.py` (reusing `questa_log.py`), monitor `FINGERPRINT`, monitor X check (`MON_X`), master-signal initialisers in the interface, `tb_top` power-on reset as `rst_n = 1'b1` / `#1` drop / release at a negedge after 3 posedges, formal checkers bound into `tb_top.dut` (instance bind, `NO_UVM_CHECKERS` switch). No new tests | Existing tests pass on 20 seeds in both widths with the bound checkers silent, **including no assume firing at power-on**; no `MON_X`; coverage numbers unchanged; distinct fingerprints for the random tests |
-| 5b | Reset: `rst_n` moved into the interface (`= 1'b1`, power-on drop at `#1`), `apply_reset` / `reset_ctrl`, `clear_master_valids`, driver kill path and `wait_reset_release`, monitor abort + `reset_ap`, scoreboard clear, `cp_reset_phase`, `axi4lite_reset_test` | Reset test and existing tests pass on 20 seeds in both widths; every `cp_reset_phase` bin hit, `idle` including resets that land while the driver is blocked in `get_next_item`; no `m_*valid_low_in_reset` firing; M09b killed by `axi4lite_reset_test` |
+| 5b | (implemented; Questa run pending) Reset: `rst_n` moved into the interface (`= 1'b1`, power-on drop at `#1`), `apply_reset` / `reset_ctrl`, `clear_master_valids`, driver kill path and `wait_reset_release`, monitor abort + `reset_ap`, scoreboard clear, `cp_reset_phase`, `axi4lite_reset_test` | Reset test and existing tests pass on 20 seeds in both widths; every `cp_reset_phase` bin hit, `idle` including resets that land while the driver is blocked in `get_next_item`; no `m_*valid_low_in_reset` firing; M09b killed by `axi4lite_reset_test` |
 | 5c | Concurrency: `drv_mode`, `wr_sqr` / `rd_sqr` / `rd_item_port`, `start_delay`, monitor `cyc` / `stamp` / `commit_ap` (write commits), scoreboard `visible()` + full per-register history (the only write path, all modes; cleared by `clear_on_reset()`), `cp_rw_overlap`, formal covers `cp_rw_fire_before_ar` / `cp_rw_fire_on_ar_edge` and the blackbox assert `a_e2e_read_order` (`expected_counts.txt`: covers 43 → 45, asserts 57 → 58 and 65 → 66), `axi4lite_rw_concurrency_test`, `axi4lite_oor_sweep_test`; then the directed tests the step 4 survivors call for | Concurrency test closes both boundary bins; **the existing random / unaligned sweeps still give 20 / 20 seeds and 100% merged coverage in both widths** (the regression for the new scoreboard write path); formal self-check 58 / 66 asserts, 45 covers; M19 now fires `a_e2e_read_order` as well |
 | 6 | Re-run mutations, README results | Table updated; every survivor explained (expected survivor, or equivalent); M09a, M09b and M19 now killed in simulation |

@@ -49,6 +49,7 @@ package axi4lite_pkg;
   `include "axi4lite_agent.sv"
   `include "axi4lite_scoreboard.sv"
   `include "axi4lite_coverage_collector.sv"
+  `include "axi4lite_reset_coverage.sv"
   `include "axi4lite_env.sv"
   `include "axi4lite_tests.sv"
 

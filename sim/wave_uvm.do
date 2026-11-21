@@ -18,7 +18,7 @@
 
 add wave -divider "clk/rst"
 add wave /tb_top/clk
-add wave /tb_top/rst_n
+add wave /tb_top/intf/rst_n
 
 add wave -divider "AW (write addr)"
 add wave -radix hexadecimal   /tb_top/intf/awaddr

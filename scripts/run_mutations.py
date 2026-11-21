@@ -41,7 +41,7 @@ from tools import read, remove, sh
 OUT = "build/mutation"
 COPY = ["rtl", "tb", "formal", "scripts", "Makefile"]
 DIRECTED_TESTS = ["axi4lite_smoke_test"]
-RANDOM_TESTS = ["axi4lite_random_test", "axi4lite_unaligned_test"]
+RANDOM_TESTS = ["axi4lite_random_test", "axi4lite_unaligned_test", "axi4lite_reset_test"]
 RUN_TIMEOUT = 600        # one simulation, seconds
 FORMAL_TIMEOUT = 3600    # one proof, seconds
 

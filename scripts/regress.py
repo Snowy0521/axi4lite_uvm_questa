@@ -33,6 +33,7 @@ TESTS = {
     "axi4lite_smoke_test":     (False, 0),
     "axi4lite_random_test":    (True, 100),
     "axi4lite_unaligned_test": (True, 100),
+    "axi4lite_reset_test":     (True, 100),
 }
 OUT = "build/regress"
 RUNS = "build/cov/runs"

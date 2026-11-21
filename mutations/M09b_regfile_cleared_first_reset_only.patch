@@ -1,5 +1,5 @@
 # M09b: Regfile cleared at the first reset only
-# baseline 32: S K
+# baseline 32: K K
 --- a/rtl/axi4lite_slave.sv
 +++ b/rtl/axi4lite_slave.sv
 @@ -68,6 +68,7 @@

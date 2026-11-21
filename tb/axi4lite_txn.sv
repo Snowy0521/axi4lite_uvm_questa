@@ -59,3 +59,28 @@ class axi4lite_txn extends uvm_sequence_item;
   endfunction
 
 endclass
+
+// --------------------------------------------------------------------------
+// A reset seen by the monitor, published on its reset_ap: one per reset, even
+// when nothing was in flight. `aborted` lists the phase of every transaction
+// the reset cut off (a write and a read can be in flight together); empty
+// means the bus was idle. Completed transactions stay on the monitor's ap, so
+// its subscribers never see an aborted one.
+// --------------------------------------------------------------------------
+typedef enum bit [2:0] { ABORT_AW_W, ABORT_B_WAIT, ABORT_AR, ABORT_R_WAIT } axi4lite_abort_phase_e;
+
+class axi4lite_reset_evt extends uvm_object;
+  `uvm_object_utils(axi4lite_reset_evt)
+
+  axi4lite_abort_phase_e aborted[$];
+
+  function new(string name = "axi4lite_reset_evt");
+    super.new(name);
+  endfunction
+
+  function string convert2string();
+    string s = (aborted.size() == 0) ? " idle" : "";
+    foreach (aborted[i]) s = {s, " ", aborted[i].name()};
+    return {"RESET:", s};
+  endfunction
+endclass
