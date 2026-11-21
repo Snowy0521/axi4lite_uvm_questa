@@ -5,7 +5,8 @@ Each mutant runs in a throwaway copy, build/mutation/<id>/, never in the repo, s
 an interrupted run cannot leave a bug in the real RTL. For each mutant and width:
   1. behaviour: the patch applies, and the signature of a random formal_tb run is
      compared with the clean design's. Equal signatures: "no difference seen".
-  2. simulation: the UVM tests on the mutant, black-box. Stops at the first failure.
+  2. simulation: the UVM tests on the mutant, black-box (UVM_CHECKERS=no: the formal
+     checkers are not bound in). Stops at the first failure.
      What counts as a failure is decided by scripts/questa_log.py.
   3. formal: make formal-verify, scored from the report (check_formal_report.py).
      make's exit status is not used: the self-check fails on any mutant, and
@@ -30,13 +31,12 @@ import glob
 import os
 import re
 import shutil
-import signal
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import check_formal_report
 import questa_log
+from tools import read, remove, sh
 
 OUT = "build/mutation"
 COPY = ["rtl", "tb", "formal", "scripts", "Makefile"]
@@ -44,49 +44,6 @@ DIRECTED_TESTS = ["axi4lite_smoke_test"]
 RANDOM_TESTS = ["axi4lite_random_test", "axi4lite_unaligned_test"]
 RUN_TIMEOUT = 600        # one simulation, seconds
 FORMAL_TIMEOUT = 3600    # one proof, seconds
-
-
-def sh(cmd, cwd, log, timeout):
-    """Run a command in cwd, write its output to log; (exit code, output). A missing
-    tool is 127 and a timeout is 124, not a crash of this script.
-
-    The command gets its own process group, and a timeout kills the whole group:
-    the command is make, and the tool it started would otherwise keep running,
-    holding its license and writing into the mutant's directory."""
-    try:
-        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             universal_newlines=True, start_new_session=True)
-    except OSError as e:
-        code, out = 127, "run_mutations: cannot run %s: %s\n" % (cmd[0], e)
-    else:
-        try:
-            out, _ = p.communicate(timeout=timeout)
-            code = p.returncode
-        except subprocess.TimeoutExpired:
-            os.killpg(p.pid, signal.SIGKILL)
-            try:
-                out, _ = p.communicate(timeout=10)
-            except subprocess.TimeoutExpired:      # something left the group and holds the pipe
-                out = ""
-            code = 124
-            out += "run_mutations: timed out after %d s: %s\n" % (timeout, " ".join(cmd))
-    with open(log, "w") as f:
-        f.write(out)
-    return code, out
-
-
-def read(path):
-    if not os.path.exists(path):
-        return ""
-    with open(path, errors="replace") as f:
-        return f.read()
-
-
-def remove(path):
-    """Before a run that writes path: a run that dies must not leave an earlier
-    result to be read as its own (M18 runs both widths in one copy)."""
-    if os.path.exists(path):
-        os.remove(path)
 
 
 def parse_patch(path):
@@ -143,7 +100,7 @@ def signature(d, width):
 def score_sim(d, width, seeds):
     """(caught, detail): True at the first failing run, False if every run passes,
     None if a run did not finish or the build failed."""
-    code, _ = sh(["make", "uvm-build", "DATA_WIDTH=%d" % width], d,
+    code, _ = sh(["make", "uvm-build", "DATA_WIDTH=%d" % width, "UVM_CHECKERS=no"], d,
                  os.path.join(d, "uvm_build_%d.log" % width), RUN_TIMEOUT)
     if code != 0:
         return None, "UVM build failed (see uvm_build_%d.log)" % width

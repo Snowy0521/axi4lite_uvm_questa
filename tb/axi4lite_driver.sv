@@ -34,7 +34,13 @@ class axi4lite_driver extends uvm_driver #(axi4lite_txn);
   task run_phase(uvm_phase phase);
 
     // super.run_phase(phase); --- IGNORE --- // its a virtual task, so it does nothing anyway
-    wait (vif.rst_n === 1'b1); // “===” return only true and false, not x or z
+    // Wait for the reset to be released, not just for rst_n to be 1: tb_top
+    // starts rst_n at 1 and drops it at 1 ns, so a bare `wait (rst_n === 1)`
+    // passes at time 0 and the first write is driven while the DUT is still
+    // in reset (m_*valid_low_in_reset fire, the write is lost, DRV_TIMEOUT).
+    // Level waits, so it works whether run_phase starts before or after the drop.
+    wait (vif.rst_n === 1'b0);
+    wait (vif.rst_n === 1'b1);
     reset_signals();
 
     forever begin

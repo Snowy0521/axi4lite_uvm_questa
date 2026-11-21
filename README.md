@@ -216,21 +216,26 @@ make clean                                     # removes build/
   are still checked. `check_phase` then errors if any request went
   unanswered or a response came unasked.
 
-**Regression and sign-off.** `make uvm-sweep` compiles once and runs seeds
-1..N, parsing each run's UVM report summary. A seed with no summary
-(crash or hang) counts as a failure. Each seed saves its coverage to a
-UCDB; the passing seeds are merged with `vcover` (`build/cov/uvm/`,
-`merged_cvg.txt` lists the bins still at zero). Sign-off, all three
-enforced by the script:
+**Regression and sign-off.** `make regress` (`scripts/regress.py`) compiles
+once, runs the smoke test once and seeds 1..N of each random test, with the
+formal checkers bound into the DUT. A run passes only with a complete UVM
+report summary, zero `UVM_ERROR` / `UVM_FATAL` and no simulator `** Error`
+(a failing bound assertion reports that way); a run with no summary (crash or
+hang) is a failure. Coverage is merged with `vcover` from passing runs only
+(`build/cov/<test>_cvg.txt` lists the bins still at zero). `make uvm-sweep
+TEST=<t>` does the same for one test. Sign-off, all enforced by the script:
 
-1. zero `UVM_ERROR` / `UVM_FATAL` in every seed,
-2. 100% functional coverage **merged over the sweep** (`COV_GOAL`, 100
-   for `axi4lite_random_test` and `axi4lite_unaligned_test`; the smoke test
-   only exercises in-range full-word traffic, so it isn't held to it).
+1. every run passes, by the rule above,
+2. 100% functional coverage **merged over the seeds** of
+   `axi4lite_random_test` and of `axi4lite_unaligned_test`; the smoke test
+   only exercises in-range full-word traffic, so it isn't held to it.
    One seed of `NUM_TXNS` writes isn't expected to hit every register x
    op and every pattern; the regression is,
 3. no outstanding transactions at the end of every test (a `UVM_ERROR`
-   from the monitor's `check_phase`, so it falls under 1).
+   from the monitor's `check_phase`, so it falls under 1),
+4. no X on a DUT output (`MON_X` from the monitor, a `UVM_ERROR`),
+5. different seeds of a random test give different monitor fingerprints, so
+   the seed really reaches the stimulus.
 
 ## UVM results
 
@@ -321,19 +326,21 @@ of the design, and scores each with black-box UVM and with Questa Formal. Every
 patch states its expected result before the run. Full table, with what fired:
 [`docs/mutation_baseline.md`](docs/mutation_baseline.md). First run, Questa 2024.3,
 2026-11-09: **22 runs (M18 at both widths), 0 different from the expected result,
-0 errors.**
+0 errors.** Re-run after step 5a (monitor X check, checkers bound into the UVM DUT),
+2026-11-10: again 0 different, 0 errors, with M09a moved to caught by both.
 
 | | Count | Mutants |
 |---|---|---|
-| Caught by UVM and formal | 15 | M01–M08, M10–M13, M16, M17, M18 (64-bit) |
-| Caught by formal only | 5 | M09a, M09b, M14, M15, M19 |
+| Caught by UVM and formal | 16 | M01–M08, M09a (since 5a), M10–M13, M16, M17, M18 (64-bit) |
+| Caught by formal only | 4 | M09b, M14, M15, M19 |
 | Equivalent (no observable difference) | 2 | M18 (32-bit: `ADDR_LSB` is 2 anyway), M20 |
 
-The five UVM survivors were expected, and each points to a gap in the stimulus or
+The UVM survivors were expected, and each points to a gap in the stimulus or
 the monitor, not to a checker that is wrong:
 
-- **M09a** (regfile not reset): the monitor stores `rdata` in a 2-state field, so
-  an X from an unreset register reads as 0. The planned monitor X check closes it.
+- **M09a** (regfile not reset), closed in step 5a: the monitor stores `rdata` in a
+  2-state field, so an X from an unreset register read as 0. The monitor X check
+  (`MON_X`) now flags it.
 - **M09b** (regfile cleared at the first reset only): no UVM test resets mid-run
   yet.
 - **M14, M15** (a second write while B is pending, a second read while R is

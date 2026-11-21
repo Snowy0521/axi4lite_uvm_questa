@@ -1,5 +1,5 @@
 # M09a: Reset branch does not clear the regfile at all
-# baseline 32: S K
+# baseline 32: K K
 --- a/rtl/axi4lite_slave.sv
 +++ b/rtl/axi4lite_slave.sv
 @@ -92,7 +92,6 @@

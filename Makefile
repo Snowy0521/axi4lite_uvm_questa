@@ -32,9 +32,10 @@
 # TEST defaults to the smoke test; override on the command line, e.g.:
 #   make uvm TEST=axi4lite_random_test
 #
-# `uvm-sweep` builds TEST once and runs seeds 1..N (default 20) against it,
-# reporting which (if any) failed by parsing each run's UVM report summary
-# (UVM_ERROR/UVM_FATAL counts) -- much cheaper than N full rebuilds:
+# `regress` builds once and runs every test (random tests on seeds 1..N,
+# default 20), with the formal checkers bound into the DUT; `uvm-sweep` does
+# the same for one TEST. Both run scripts/regress.py:
+#   make regress
 #   make uvm-sweep TEST=axi4lite_random_test N=20
 #
 # `formal` runs the formal/ assume/assert/cover environment (flow #2 in
@@ -66,8 +67,11 @@
 #   build/sim/        vsim runs here (transcript, *.wlf, tr_db.log, tb_top.vcd)
 #   build/formal/     qverify -od: logs, *.rpt, formal_report*.txt,
 #                     propcheck.db/, .qverify/, qverify_cmds.tcl
-#   build/cov/uvm/    uvm-sweep: seed_<n>.ucdb, merged.ucdb, merged_cvg.txt,
-#                     merged_code.txt, merge.log
+#   build/cov/runs/   one UCDB per UVM run (uvm-run)
+#   build/cov/        regress / uvm-sweep: <test>.ucdb and all.ucdb merged from
+#                     passing runs, with _cvg.txt / _code.txt reports
+#   build/regress/    regress: summary.log (one line per run, with the command
+#                     that reproduces it), build and run logs
 #   build/cov/formal/ formal-coverage scratch (removed at the end of the run)
 #   build/smoke_<w>/  Verilator smoke build and log, per data width
 # ============================================================================
@@ -76,11 +80,6 @@ TEST      ?= axi4lite_smoke_test
 SEED      ?= 42
 N         ?= 20
 PLUSARGS  ?=
-# uvm-sweep fails if the functional coverage merged over its passing seeds
-# is below COV_GOAL (%). 100 for the random and unaligned-address tests
-# (sign-off); the smoke test only reaches part of the model by design, so
-# it isn't held to it. One seed isn't expected to close the model alone.
-COV_GOAL  ?= $(if $(filter axi4lite_random_test axi4lite_unaligned_test,$(TEST)),100,0)
 
 RTL_F      := rtl/rtl.f
 TB_F       := tb/tb.f
@@ -93,7 +92,6 @@ FORMAL_DRV := formal/axi4lite_formal_driver.sv formal/axi4lite_signature.sv
 BUILD          := build
 SIM_DIR        := $(BUILD)/sim
 FORMAL_OUT     := $(BUILD)/formal
-UVM_COV_DIR    := $(BUILD)/cov/uvm
 FORMAL_COV_DIR := $(BUILD)/cov/formal
 
 # If $MODELSIM is set in your shell (some site installs export it globally,
@@ -194,6 +192,7 @@ selfcheck-test:
 
 mutations-test:
 	$(PYTHON) scripts/test_mutations.py
+	$(PYTHON) scripts/test_regress.py
 
 # ============================================================================
 # Shared library setup -- just vlib+vmap, nothing UVM/test-specific about it.
@@ -227,6 +226,20 @@ simple: simple-build
 # UCDB as the covergroups.
 CODE_COV ?= bcesf
 
+# The formal checkers bound into the UVM DUT (tb_top.sv): the checker modules of
+# formal.f, without the formal_tb harness. UVM_CHECKERS=no builds without them
+# (+define+NO_UVM_CHECKERS), which is how mutation testing scores the UVM bench
+# on its own.
+UVM_CHECKERS ?= yes
+CHECKER_SRCS := $(filter-out formal/formal_tb.sv,$(shell grep -v -e '^//' -e '^+' -e '^$$' $(FORMAL_F)))
+ifeq ($(UVM_CHECKERS),yes)
+UVM_CHECKER_ARGS := $(CHECKER_SRCS)
+else ifeq ($(UVM_CHECKERS),no)
+UVM_CHECKER_ARGS := +define+NO_UVM_CHECKERS
+else
+$(error UVM_CHECKERS must be yes or no, not '$(UVM_CHECKERS)')
+endif
+
 uvm-home-check:
 	@test -n "$(QUESTA_UVM_HOME)" || { echo "uvm-build: vsim is not on PATH; set QUESTA_UVM_HOME (or QUESTA_HOME)"; exit 1; }
 	@test -f "$(QUESTA_UVM_HOME)/uvm_pkg.sv" || { echo "uvm-build: $(QUESTA_UVM_HOME)/uvm_pkg.sv not found; set QUESTA_UVM_HOME"; exit 1; }
@@ -244,83 +257,42 @@ uvm-build: uvm-home-check
 	     -f $(RTL_F)
 	$(VLOG) -sv -timescale 1ns/1ps $(WIDTH_DEFINE) \
 	     +incdir+$(QUESTA_UVM_HOME) +define+UVM_NO_DPI \
-	     +incdir+rtl -f $(TB_F)
+	     +incdir+rtl $(UVM_CHECKER_ARGS) -f $(TB_F)
 	$(VOPT) +acc tb_top -o tb_top_opt
 
 uvm: uvm-build
 	cd $(SIM_DIR) && $(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
 	     +UVM_VERBOSITY=$(UVM_VERBOSITY) $(PLUSARGS) -onfinish exit -do "run -all; quit -f"
 
-# Each seed saves its coverage to $(UVM_COV_DIR)/seed_<n>.ucdb (same
-# -onfinish stop / coverage save pattern as formal-coverage); the passing
-# seeds are merged with vcover and the merged covergroup coverage is held to
-# COV_GOAL. merged_cvg.txt is kept for finding the bins still at zero.
-# Code coverage of the DUT is reported too (merged_code.txt, summary
-# printed) but not gated: a code hole needs a reason -- missing stimulus,
-# missing plan item, or unreachable code -- before it can be waived.
-# vsim runs inside build/sim/, so the UCDB path it saves to is absolute.
-uvm-sweep: uvm-build
-	@rm -rf $(UVM_COV_DIR); mkdir -p $(UVM_COV_DIR); \
-	fail=0; \
-	for s in $$(seq 1 $(N)); do \
-	  out=$$(cd $(SIM_DIR) && $(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $$s \
-	         +UVM_VERBOSITY=$(UVM_VERBOSITY) $(PLUSARGS) -onfinish stop \
-	         -do "run -all; coverage save $(CURDIR)/$(UVM_COV_DIR)/seed_$$s.ucdb; quit -f" 2>&1); \
-	  sfail=0; \
-	  errs=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_ERROR :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
-	  fatals=$$(echo "$$out" | sed -n 's/^#\{0,1\} *UVM_FATAL :[ \t]*\([0-9][0-9]*\).*/\1/p' | tail -1); \
-	  cov=$$(echo "$$out" | sed -n 's/.*Overall coverage for [^:]*: *\([0-9.]*\)%.*/\1/p' | tail -1); \
-	  if [ -z "$$errs" ] || [ -z "$$fatals" ]; then \
-	    echo "seed $$s: FAILED (no UVM report summary found -- crashed or hung?)"; \
-	    echo "$$out" | tail -30 | sed 's/^/    /'; \
-	    sfail=1; \
-	  elif [ "$$errs" -gt 0 ] || [ "$$fatals" -gt 0 ]; then \
-	    echo "seed $$s: FAILED (UVM_ERROR=$$errs UVM_FATAL=$$fatals)"; \
-	    sfail=1; \
-	  else \
-	    echo "seed $$s: OK (coverage this seed $${cov:-?}%)"; \
-	  fi; \
-	  if [ "$$sfail" -ne 0 ]; then fail=1; rm -f $(UVM_COV_DIR)/seed_$$s.ucdb; fi; \
-	done; \
-	if ls $(UVM_COV_DIR)/seed_*.ucdb > /dev/null 2>&1; then \
-	  $(VCOVER) merge $(UVM_COV_DIR)/merged.ucdb $(UVM_COV_DIR)/seed_*.ucdb \
-	       > $(UVM_COV_DIR)/merge.log 2>&1; \
-	  $(VCOVER) report -cvg -details $(UVM_COV_DIR)/merged.ucdb \
-	       > $(UVM_COV_DIR)/merged_cvg.txt 2>&1; \
-	  mcov=$$(sed -n 's/.*TOTAL COVERGROUP COVERAGE: *\([0-9.]*\)%.*/\1/p' \
-	          $(UVM_COV_DIR)/merged_cvg.txt | tail -1); \
-	  if [ -z "$$mcov" ]; then \
-	    echo "MERGED COVERAGE: not found in $(UVM_COV_DIR)/merged_cvg.txt (see merge.log)"; \
-	    fail=1; \
-	  elif awk -v c="$$mcov" -v g="$(COV_GOAL)" 'BEGIN { exit !(c + 0 >= g + 0) }'; then \
-	    echo "MERGED COVERAGE: $$mcov% (COV_GOAL=$(COV_GOAL)%)"; \
-	  else \
-	    echo "MERGED COVERAGE: $$mcov% < COV_GOAL=$(COV_GOAL)% -- bins at zero in $(UVM_COV_DIR)/merged_cvg.txt"; \
-	    fail=1; \
-	  fi; \
-	  $(VCOVER) report -details $(UVM_COV_DIR)/merged.ucdb \
-	       > $(UVM_COV_DIR)/merged_code.txt 2>&1; \
-	  echo "DUT CODE COVERAGE (merged, not gated; details in $(UVM_COV_DIR)/merged_code.txt):"; \
-	  awk '/^=== Instance: / { dut = ($$3 == "/tb_top/dut") } \
-	       dut && /^ +(Statements|Branches|Conditions|Expressions|FSM)/ { print "  " $$0 }' \
-	      $(UVM_COV_DIR)/merged_code.txt; \
-	else \
-	  echo "MERGED COVERAGE: no passing seed to merge"; \
-	  fail=1; \
-	fi; \
-	if [ "$$fail" -eq 0 ]; then \
-	  echo "ALL $(N) SEEDS PASSED (TEST=$(TEST), merged coverage >= $(COV_GOAL)%)"; \
-	else \
-	  echo "SWEEP FAILED (TEST=$(TEST))"; \
-	  exit 1; \
-	fi
+# The UVM regression, scripts/regress.py: one build, then every test (directed
+# tests once, random tests seeds 1..N), run classification by
+# scripts/questa_log.py, coverage merged from passing runs only and gated per
+# test (100% for the random tests), plus a merge across all tests and the DUT
+# code coverage, not gated: a code hole needs a reason -- missing stimulus,
+# missing plan item, or unreachable code -- before it can be waived. Different
+# seeds of a random test must give different monitor fingerprints.
+# Results in build/regress/summary.log and build/cov/.
+#   make regress [N=20] [TESTS=a,b] [DATA_WIDTH=64] [UVM_CHECKERS=no]
+#   make uvm-sweep TEST=axi4lite_random_test N=20      (one test)
+regress:
+	$(PYTHON) scripts/regress.py --seeds $(N) --width $(DATA_WIDTH) --checkers $(UVM_CHECKERS) \
+	    $(if $(TESTS),--tests $(TESTS))
 
-# One run without rebuilding (after uvm-build), log in build/sim/<test>_<seed>.log.
-# Used by scripts/run_mutations.py, which reads the log with scripts/questa_log.py.
+uvm-sweep:
+	$(PYTHON) scripts/regress.py --tests $(TEST) --seeds $(N) --width $(DATA_WIDTH) --checkers $(UVM_CHECKERS)
+
+# One run without rebuilding (after uvm-build): log in build/sim/<test>_<seed>.log,
+# coverage in build/cov/runs/<test>_<seed>.ucdb (-onfinish stop returns to the
+# do script after $finish, so the coverage is saved; vsim runs in build/sim/, so
+# the path is absolute). Used by scripts/regress.py and scripts/run_mutations.py,
+# which read the log with scripts/questa_log.py.
+RUN_COV_DIR := $(BUILD)/cov/runs
+
 uvm-run:
+	mkdir -p $(RUN_COV_DIR)
 	cd $(SIM_DIR) && $(VSIM) -c -coverage tb_top_opt +UVM_TESTNAME=$(TEST) -sv_seed $(SEED) \
-	     +UVM_VERBOSITY=$(UVM_VERBOSITY) $(PLUSARGS) -onfinish exit -l $(TEST)_$(SEED).log \
-	     -do "run -all; quit -f" > /dev/null
+	     +UVM_VERBOSITY=$(UVM_VERBOSITY) $(PLUSARGS) -onfinish stop -l $(TEST)_$(SEED).log \
+	     -do "run -all; coverage save $(CURDIR)/$(RUN_COV_DIR)/$(TEST)_$(SEED).ucdb; quit -f" > /dev/null
 
 # ============================================================================
 # Formal assume/assert/cover environment (flow #2: bounded, randomly-driven
@@ -431,7 +403,7 @@ mutate:
 	$(PYTHON) scripts/run_mutations.py --seeds $(MUT_SEEDS) $(if $(ONLY),--only $(ONLY))
 
 .PHONY: check lint lint-verilator lint-slang smoke selfcheck-test mutations-test \
-        lib simple-build simple uvm-home-check uvm-build uvm uvm-run uvm-sweep \
+        lib simple-build simple uvm-home-check uvm-build uvm uvm-run uvm-sweep regress \
         formal-build formal formal-signature formal-sweep formal-build-cov formal-coverage \
         formal-verify formal-verify-all formal-verify-noassume mutate clean
 

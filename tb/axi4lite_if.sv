@@ -18,27 +18,32 @@ interface axi4lite_if #(
   input logic rst_n
 );
 
+  // The master-side VALIDs and READYs start at the driver's idle values
+  // (reset_signals()): the driver only drives them after reset is released,
+  // so without these they would be X at every power-on edge, where the bound
+  // m_*valid_low_in_reset / m_no_x_* assumptions check them. Addresses and
+  // data may stay X: every check on them is conditional on VALID.
   logic [ADDR_WIDTH-1:0]   awaddr;
-  logic                    awvalid;
+  logic                    awvalid = 1'b0;
   logic                    awready;
 
   logic [DATA_WIDTH-1:0]   wdata;
   logic [DATA_WIDTH/8-1:0] wstrb;
-  logic                    wvalid;
+  logic                    wvalid = 1'b0;
   logic                    wready;
 
   logic [1:0]              bresp;
   logic                    bvalid;
-  logic                    bready;
+  logic                    bready = 1'b1;
 
   logic [ADDR_WIDTH-1:0]   araddr;
-  logic                    arvalid;
+  logic                    arvalid = 1'b0;
   logic                    arready;
   
   logic [DATA_WIDTH-1:0]   rdata;
   logic [1:0]              rresp;
   logic                    rvalid;
-  logic                    rready;
+  logic                    rready = 1'b1;
   
   // ---------------------------------------------------------------------
   // Driver clocking block: drives master-side signals, samples slave
@@ -65,9 +70,9 @@ interface axi4lite_if #(
   endclocking
 
   // rst_n is asynchronous and deliberately kept outside both clocking
-  // blocks: driver/monitor code does `wait (vif.rst_n === 1'b1)` and needs
-  // to see reset release immediately, not delayed by a clocking block's
-  // #1step sample.
+  // blocks: the driver and monitor wait for rst_n to fall and then rise
+  // (it starts at 1), and need to see each change immediately, not delayed
+  // by a clocking block's #1step sample.
   modport driver  (clocking drv_cb, input clk, rst_n);
   modport monitor (clocking mon_cb, input clk, rst_n);
 
