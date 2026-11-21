@@ -70,9 +70,9 @@ interface axi4lite_if #(
   endclocking
 
   // rst_n is asynchronous and deliberately kept outside both clocking
-  // blocks: driver/monitor code does `wait (vif.rst_n === 1'b1)` and needs
-  // to see reset release immediately, not delayed by a clocking block's
-  // #1step sample.
+  // blocks: the driver and monitor wait for rst_n to fall and then rise
+  // (it starts at 1), and need to see each change immediately, not delayed
+  // by a clocking block's #1step sample.
   modport driver  (clocking drv_cb, input clk, rst_n);
   modport monitor (clocking mon_cb, input clk, rst_n);
 

@@ -331,7 +331,15 @@ simulation: a reset task that is later randomized freely makes the assume fire. 
   later and turn a passing reset test into a fatal.
 - On reset: `vif.clear_master_valids()` in the same time step as the `rst_n` fall, plus `drv_cb.*valid <= 0`, so the
   clockvars hold 0 at the next edge whatever was pending. Then `item_done()` for the aborted item (otherwise the
-  sequence hangs in `finish_item`). Then `wait (vif.rst_n === 1'b1)` and `reset_signals()`.
+  sequence hangs in `finish_item`). Then `wait (vif.rst_n === 1'b0); wait (vif.rst_n === 1'b1);` and
+  `reset_signals()`. Both waits, because `rst_n` starts at 1 (power-on drops it at 1 ns): a bare wait for 1 passes at
+  time 0 and drives the first item into the reset (found on the first 5a run). Level waits, so the same task works
+  after an abort, where `rst_n` is already 0.
+  **Must hold in 5b:** the abort path reaches these waits in zero simulated time. If it waited a clock first (say
+  `@(vif.drv_cb)` to let the clockvars settle) and the reset pulse were short, `rst_n` could already be back at 1, the
+  wait for 0 would block until the next reset, and the driver would hang silently. So either the abort path runs in
+  zero time, or `wait_reset_release()` takes an argument and the abort path, which has already seen the fall, skips
+  the wait for 0. `axi4lite_reset_test` includes at least one one-clock reset to exercise exactly this.
 - That last part is one task, `wait_reset_release()`, called both at the start of `run_phase` and after an abort.
 - **Reset while idle:** if `rst_n` falls while the driver is blocked in `get_next_item` (between items), nothing is
   in flight to kill, and the VALIDs are already low. But the next item would arrive during reset and be driven at
