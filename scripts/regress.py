@@ -41,7 +41,9 @@ BUILD_TIMEOUT = 900
 RUN_TIMEOUT = 600
 
 FINGERPRINT = re.compile(r"FINGERPRINT ([0-9a-f]{8})")
-SEED_COVERAGE = re.compile(r"Overall coverage for [^:]*: *([0-9.]+)%")
+# One line per coverage collector, "<Name> coverage for <path>: <n>%": "Overall" is the
+# main model; the reset test adds "Reset" (axi4lite_reset_coverage)
+SEED_COVERAGE = re.compile(r"(\w+) coverage for [^:]*: *([0-9.]+)%")
 TOTAL_CVG = re.compile(r"TOTAL COVERGROUP COVERAGE: *([0-9.]+)%")
 CODE_ROW = re.compile(r"^ +(Statements|Branches|Conditions|Expressions|FSM)\b.*$")
 
@@ -57,6 +59,15 @@ def repeated(fingerprints):
     for fp in fingerprints:
         (dups if fp in seen or fp is None else seen).add(fp)
     return sorted(str(d) for d in dups)
+
+
+def seed_coverage(log_text):
+    """This seed's coverage, every collector: "100.00%", or "100.00% (reset 80.00%)".
+    The per-test gate is on the merged report, which counts all of them."""
+    found = SEED_COVERAGE.findall(log_text)
+    main = [pct for name, pct in found if name == "Overall"]
+    others = ["%s %s%%" % (name.lower(), pct) for name, pct in found if name != "Overall"]
+    return "%s%%%s" % (main[-1] if main else "?", " (%s)" % ", ".join(others) if others else "")
 
 
 def covergroup_total(report_text):
@@ -124,11 +135,10 @@ def main():
             if code == 124:
                 status, detail = "crash", "timed out after %d s" % RUN_TIMEOUT
             fp = fingerprint(text)
-            cov = SEED_COVERAGE.findall(text)
             line = "%-5s %s seed %d: %s" % (
                 status.upper(), test, seed,
-                detail if status != "pass" else "coverage this seed %s%%, fingerprint %s" % (
-                    cov[-1] if cov else "?", fp))
+                detail if status != "pass" else "coverage this seed %s, fingerprint %s" % (
+                    seed_coverage(text), fp))
             print(line, flush=True)
             summary.append("%s  | make uvm TEST=%s SEED=%d %s" % (line, test, seed, " ".join(make_vars)))
             if status == "pass":
