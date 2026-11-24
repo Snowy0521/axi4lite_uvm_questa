@@ -328,12 +328,14 @@ patch states its expected result before the run. Full table, with what fired:
 [`docs/mutation_baseline.md`](docs/mutation_baseline.md). First run, Questa 2024.3,
 2026-11-09: **22 runs (M18 at both widths), 0 different from the expected result,
 0 errors.** Re-run after step 5a (monitor X check, checkers bound into the UVM DUT),
-2026-11-10: again 0 different, 0 errors, with M09a moved to caught by both.
+2026-11-10: again 0 different, 0 errors, with M09a moved to caught by both. Re-run
+after step 5b (mid-run reset, `axi4lite_reset_test` added to the UVM runs),
+2026-11-23: 0 different, 0 errors, with M09b moved to caught by both.
 
 | | Count | Mutants |
 |---|---|---|
-| Caught by UVM and formal | 16 | M01–M08, M09a (since 5a), M10–M13, M16, M17, M18 (64-bit) |
-| Caught by formal only | 4 | M09b, M14, M15, M19 |
+| Caught by UVM and formal | 17 | M01–M08, M09a (since 5a), M09b (since 5b), M10–M13, M16, M17, M18 (64-bit) |
+| Caught by formal only | 3 | M14, M15, M19 |
 | Equivalent (no observable difference) | 2 | M18 (32-bit: `ADDR_LSB` is 2 anyway), M20 |
 
 The UVM survivors were expected, and each points to a gap in the stimulus or
@@ -342,8 +344,9 @@ the monitor, not to a checker that is wrong:
 - **M09a** (regfile not reset), closed in step 5a: the monitor stores `rdata` in a
   2-state field, so an X from an unreset register read as 0. The monitor X check
   (`MON_X`) now flags it.
-- **M09b** (regfile cleared at the first reset only): no UVM test reset mid-run
-  before step 5b; `axi4lite_reset_test` is expected to close it.
+- **M09b** (regfile cleared at the first reset only), closed in step 5b: no UVM
+  test reset mid-run before; `axi4lite_reset_test` now reads back a register
+  written before a reset and sees the stale value.
 - **M14, M15** (a second write while B is pending, a second read while R is
   pending): the driver keeps one request in flight per channel.
 - **M19** (a read bypasses a write on the same edge): no UVM test overlaps a read

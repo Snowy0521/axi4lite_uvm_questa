@@ -14,6 +14,14 @@ first failing run and its first problem; formal gives the number of fired target
 now K / K: `axi4lite_random_test seed 1: [MON_X] X/Z on DUT output(s): rdata` (its patch baseline was moved to
 K K in the same step). Every other row is as below.
 
+**Re-run after step 5b (2026-11-23, `step5b-reset`):** 22 runs, 0 differ, 0 errors. Simulation now also runs 5 seeds
+of `axi4lite_reset_test`. M09b is now K / K: `axi4lite_reset_test seed 1: [SB] READ MISMATCH addr=0x3c
+expected=0x16020000 actual=0x1602da8c` (the register kept bytes written before the reset; patch baseline moved to
+K K in the same step). M07 and M08 are still killed, but by `axi4lite_random_test` seed 1 instead of the smoke test:
+5b forks `drive_write` / `drive_read` into their own processes, so the driver's `$urandom` handshake timing (AW / W
+order, RREADY stall) differs per seed, and smoke seed 1 no longer stalls RREADY (M07) or sends W before AW (M08).
+Every other row is as below.
+
 | ID | Width | Mutation | Behaviour | Simulation | Formal | Sim / formal | Result |
 |---|---|---|---|---|---|---|---|
 | M01 | 32 | Out-of-range write aliased onto regfile[idx[3:0]], still SLVERR | changed | random seed 1: `[SB]` | 17 fired: `a_e2e_read_data`, `a_regfile_changes_only_on_own_write` ×16 | K / K | as expected |
@@ -44,7 +52,7 @@ K K in the same step). Every other row is as below.
 | ID | Why the UVM bench misses it | Closed by (plan §6) |
 |---|---|---|
 | M09a (closed in 5a) | Without the reset the regfile starts as X, but the monitor copies `rdata` into a 2-state `bit`, so an unwritten register reads back as 0, which is what the scoreboard expects (plan §4, note on M09) | 5a: monitor X check (`MON_X`) |
-| M09b | The regfile is cleared at power-on; no test resets mid-run, so the skipped later clears are never seen | 5b: `axi4lite_reset_test` |
+| M09b (closed in 5b) | The regfile is cleared at power-on; no test resets mid-run, so the skipped later clears are never seen | 5b: `axi4lite_reset_test` |
 | M14, M15 | Needs a second write while B is pending / a second AR while R is pending; the driver keeps one request in flight per channel | Stretch goal: pipelined driver |
 | M19 | Needs a read and a write to the same register firing on the same edge | 5c: `axi4lite_rw_concurrency_test` |
 
